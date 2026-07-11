@@ -1,0 +1,81 @@
+# =========================
+# Local / secrets
+# =========================
+
+# Cursor / agent local files
+.agents/
+
+# Secrets — never commit API keys or DB URLs
+.env
+!.env.example
+
+# Local run scripts (machine-specific)
+run.bat
+run.ps1
+
+# Local skills lock file
+skills-lock.json
+
+# Test / scratch MCP server
+tesing_weather_mcp_server.py
+
+# Generated travel plan exports
+travel_plans/
+
+# =========================
+# Python
+# =========================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+langgraph_env3/
+
+# =========================
+# OS / IDE
+# =========================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# =========================
+# Logs & caches
+# =========================
+*.log
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# ML / embedding model cache (sentence-transformers)
+.cache/
+models/
