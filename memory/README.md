@@ -25,6 +25,14 @@ We deliberately **do not mix** their responsibilities.
 
 ---
 
+## Memory flow diagram
+
+![Memory flow](../docs/diagrams/svg/voyager-memory.svg)
+
+*Diagram source: [`docs/diagrams/archify/voyager-memory.dataflow.json`](../docs/diagrams/archify/voyager-memory.dataflow.json) · [Regenerate](../docs/diagrams/README.md)*
+
+---
+
 ## Identifiers — The Most Important Interview Point
 
 ```

@@ -8,6 +8,10 @@ Interview-ready eval suite for the LangGraph travel planner. Measures **safety**
 
 > "Voyager runs 6 agents and 3 MCP tools. A single bad release can leak PII, route a greeting into a full graph run, or forget a user's vegetarian preference. We run **13 evals** in three schedules: **CI on every PR** (guardrails + router, ~2 min), **nightly** (5 DeepEval agent metrics on real trip planning), and **weekly** (5 DeepEval conversation metrics on follow-ups and Mem0). Results append to Markdown logs so we can debug without a dashboard during development."
 
+![Evaluation flow](../docs/diagrams/svg/voyager-evals.svg)
+
+*Diagram source: [`docs/diagrams/archify/voyager-evals.workflow.json`](../docs/diagrams/archify/voyager-evals.workflow.json)*
+
 ---
 
 ## Folder structure

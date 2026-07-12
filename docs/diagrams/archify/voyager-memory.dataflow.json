@@ -1,0 +1,36 @@
+{
+  "schema_version": 1,
+  "diagram_type": "dataflow",
+  "meta": {
+    "title": "Voyager AI — Memory Flow",
+    "subtitle": "PostgresSaver short-term + Mem0 long-term",
+    "output": "voyager-memory.html",
+    "viewBox": [900, 620]
+  },
+  "stages": [
+    { "label": "Start" },
+    { "label": "Retrieve" },
+    { "label": "Run" },
+    { "label": "Save" }
+  ],
+  "nodes": [
+    { "id": "query", "type": "frontend", "label": "User query", "sublabel": "trip request", "stage": 0, "row": 1 },
+    { "id": "retrieve", "type": "backend", "label": "retrieve_memory", "sublabel": "Mem0 search", "stage": 1, "row": 1 },
+    { "id": "context", "type": "messagebus", "label": "memory_context", "sublabel": "state field", "stage": 1, "row": 3 },
+    { "id": "agents", "type": "backend", "label": "6 Agents", "sublabel": "read context", "stage": 2, "row": 1 },
+    { "id": "checkpoint", "type": "database", "label": "PostgresSaver", "sublabel": "thread_id", "stage": 3, "row": 0 },
+    { "id": "extract", "type": "backend", "label": "Extractor", "sublabel": "LLM facts", "stage": 3, "row": 2 },
+    { "id": "mem0", "type": "cloud", "label": "Mem0", "sublabel": "user_id", "stage": 3, "row": 3 }
+  ],
+  "flows": [
+    { "from": "query", "to": "retrieve", "label": "graph start", "classification": "session", "variant": "emphasis" },
+    { "from": "retrieve", "to": "context", "label": "prefs", "classification": "Mem0", "variant": "security" },
+    { "from": "context", "to": "agents", "label": "prompt", "classification": "shared", "variant": "emphasis" },
+    { "from": "agents", "to": "checkpoint", "label": "auto save", "classification": "itinerary", "variant": "default" },
+    { "from": "agents", "to": "extract", "label": "post-run", "classification": "facts", "variant": "dashed" },
+    { "from": "extract", "to": "mem0", "label": "store", "classification": "durable", "variant": "security" }
+  ],
+  "cards": [
+    { "dot": "emerald", "title": "Short vs long", "items": ["Postgres = full trip state per session", "Mem0 = vegetarian, budget, prefs forever"] }
+  ]
+}

@@ -2,6 +2,10 @@
 
 Safety layer for the travel chat app, adapted from `nemo-guardrails-demo/`.
 
+![Guardrails flow](../docs/diagrams/svg/voyager-guardrails.svg)
+
+*Diagram source: [`docs/diagrams/archify/voyager-guardrails.sequence.json`](../docs/diagrams/archify/voyager-guardrails.sequence.json)*
+
 ## What it does
 
 ```

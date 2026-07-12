@@ -18,6 +18,10 @@ When tracing is on, each trip-planning run sends a trace to LangSmith showing:
 - Metadata: `user_id`, `thread_id`, `app=voyager-ai`
 - Tags: `voyager-ai`, `langgraph`, `user:<username>`, `streamlit`, `trip-planning`
 
+![Observability flow](../diagrams/svg/voyager-observability.svg)
+
+*Diagram source: [`diagrams/archify/voyager-observability.sequence.json`](diagrams/archify/voyager-observability.sequence.json)*
+
 Implementation files:
 
 | File | Role |

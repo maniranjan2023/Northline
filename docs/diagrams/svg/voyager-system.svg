@@ -1,0 +1,120 @@
+<svg viewBox="0 0 1110 596" role="img" aria-label="Voyager AI — System Architecture — Streamlit · LangGraph · MCP · Mem0 · Guardrails · LangSmith (architecture diagram)">
+        <!-- Definitions -->
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-default" />
+          </marker>
+          <marker id="arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-emphasis" />
+          </marker>
+          <marker id="arrowhead-security" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-security" />
+          </marker>
+          <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-dashed" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Boundaries (behind everything) -->
+        <rect x="170" y="150" width="540" height="378" rx="12" class="c-region" stroke-width="1"/>
+        <text x="178" y="168" class="t-cloud" font-size="9" font-weight="600">Voyager AI App</text>
+
+        <rect x="710" y="150" width="360" height="348" rx="8" class="c-security-group" stroke-width="1"/>
+        <text x="718" y="168" class="t-security" font-size="9" font-weight="600">External Services</text>
+
+        <!-- Connection paths (before components for correct z-order) -->
+        <path d="M 140 329 L 200 329" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path d="M 260 300 L 312 300 Q 320 300 320 292 L 320 217 Q 320 209 328 209 L 380 209" class="a-security" stroke-width="1.5" marker-end="url(#arrowhead-security)"/>
+        <path d="M 440 238 L 440 300" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path d="M 500 329 L 560 329" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path d="M 620 358 L 620 450" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+        <path d="M 620 300 L 672 300 Q 680 300 680 292 L 680 217 Q 680 209 688 209 L 740 209" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M 680 329 L 740 329" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M 620 358 L 672 358 Q 680 358 680 366 L 680 441 Q 680 449 688 449 L 740 449" class="a-default" stroke-width="1.5" marker-end="url(#arrowhead)"/>
+        <path d="M 680 329 L 920 329" class="a-dashed" stroke-width="1.5" marker-end="url(#arrowhead-dashed)"/>
+
+        <!-- Components -->
+        <rect x="30" y="300" width="110" height="58" rx="6" class="c-mask"/>
+        <rect x="30" y="300" width="110" height="58" rx="6" class="c-external" stroke-width="1.5"/>
+        <text x="85" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Traveler</text>
+        <text x="85" y="343" class="t-muted" font-size="9" text-anchor="middle">browser</text>
+
+        <rect x="200" y="300" width="120" height="58" rx="6" class="c-mask"/>
+        <rect x="200" y="300" width="120" height="58" rx="6" class="c-frontend" stroke-width="1.5"/>
+        <text x="260" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Streamlit</text>
+        <text x="260" y="343" class="t-muted" font-size="9" text-anchor="middle">frontend.py</text>
+
+        <rect x="380" y="180" width="120" height="58" rx="6" class="c-mask"/>
+        <rect x="380" y="180" width="120" height="58" rx="6" class="c-security" stroke-width="1.5"/>
+        <text x="440" y="207" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Guardrails</text>
+        <text x="440" y="223" class="t-muted" font-size="9" text-anchor="middle">NeMo safety</text>
+
+        <rect x="380" y="300" width="120" height="58" rx="6" class="c-mask"/>
+        <rect x="380" y="300" width="120" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
+        <text x="440" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Router</text>
+        <text x="440" y="343" class="t-muted" font-size="9" text-anchor="middle">intent</text>
+
+        <rect x="560" y="300" width="120" height="58" rx="6" class="c-mask"/>
+        <rect x="560" y="300" width="120" height="58" rx="6" class="c-backend" stroke-width="1.5"/>
+        <text x="620" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">LangGraph</text>
+        <text x="620" y="343" class="t-muted" font-size="9" text-anchor="middle">6 agents</text>
+
+        <rect x="560" y="450" width="120" height="58" rx="6" class="c-mask"/>
+        <rect x="560" y="450" width="120" height="58" rx="6" class="c-messagebus" stroke-width="1.5"/>
+        <text x="620" y="477" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">MCP</text>
+        <text x="620" y="493" class="t-muted" font-size="9" text-anchor="middle">3 tool servers</text>
+
+        <rect x="740" y="180" width="120" height="58" rx="6" class="c-mask"/>
+        <rect x="740" y="180" width="120" height="58" rx="6" class="c-cloud" stroke-width="1.5"/>
+        <text x="800" y="207" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Groq LLM</text>
+        <text x="800" y="223" class="t-muted" font-size="9" text-anchor="middle">llama-3.3</text>
+
+        <rect x="740" y="300" width="120" height="58" rx="6" class="c-mask"/>
+        <rect x="740" y="300" width="120" height="58" rx="6" class="c-database" stroke-width="1.5"/>
+        <text x="800" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Postgres</text>
+        <text x="800" y="343" class="t-muted" font-size="9" text-anchor="middle">short-term</text>
+
+        <rect x="740" y="420" width="120" height="58" rx="6" class="c-mask"/>
+        <rect x="740" y="420" width="120" height="58" rx="6" class="c-cloud" stroke-width="1.5"/>
+        <text x="800" y="447" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Mem0</text>
+        <text x="800" y="463" class="t-muted" font-size="9" text-anchor="middle">long-term</text>
+
+        <rect x="920" y="300" width="120" height="58" rx="6" class="c-mask"/>
+        <rect x="920" y="300" width="120" height="58" rx="6" class="c-cloud" stroke-width="1.5"/>
+        <text x="980" y="327" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">LangSmith</text>
+        <text x="980" y="343" class="t-muted" font-size="9" text-anchor="middle">traces</text>
+
+        <!-- Connection labels -->
+
+
+
+
+
+
+
+
+
+
+        <!-- Legend -->
+        <text x="40" y="567" class="t-primary" font-size="9" font-weight="600">Legend</text>
+        <rect x="40" y="572" width="14" height="9" rx="2" class="c-external" stroke-width="1"/>
+        <text x="60" y="580" class="t-muted" font-size="8">External</text>
+        <rect x="138" y="572" width="14" height="9" rx="2" class="c-frontend" stroke-width="1"/>
+        <text x="158" y="580" class="t-muted" font-size="8">Frontend</text>
+        <rect x="236" y="572" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
+        <text x="256" y="580" class="t-muted" font-size="8">Security</text>
+        <rect x="334" y="572" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
+        <text x="354" y="580" class="t-muted" font-size="8">Backend</text>
+        <rect x="427" y="572" width="14" height="9" rx="2" class="c-messagebus" stroke-width="1"/>
+        <text x="447" y="580" class="t-muted" font-size="8">Message bus</text>
+        <rect x="540" y="572" width="14" height="9" rx="2" class="c-cloud" stroke-width="1"/>
+        <text x="560" y="580" class="t-muted" font-size="8">Cloud</text>
+        <rect x="623" y="572" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
+        <text x="643" y="580" class="t-muted" font-size="8">Database</text>
+      </svg>

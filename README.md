@@ -13,15 +13,17 @@
 3. [Features (Detailed)](#features-detailed)
 4. [User Flow](#user-flow)
 5. [Memory System](#memory-system)
-6. [MCP Integration (Remote, Local, Custom)](#mcp-integration-remote-local-custom)
-7. [LangGraph Agent Pipeline](#langgraph-agent-pipeline)
-8. [Project Structure](#project-structure)
-9. [Setup Guide](#setup-guide)
-10. [How to Run](#how-to-run)
-11. [Environment Variables](#environment-variables)
-12. [Example Prompts](#example-prompts)
-13. [Evaluations](#evaluations)
-14. [Troubleshooting](#troubleshooting)
+6. [Safety (Guardrails)](#safety-guardrails)
+7. [Observability (LangSmith)](#observability-langsmith)
+8. [MCP Integration (Remote, Local, Custom)](#mcp-integration-remote-local-custom)
+9. [LangGraph Agent Pipeline](#langgraph-agent-pipeline)
+10. [Project Structure](#project-structure)
+11. [Setup Guide](#setup-guide)
+12. [How to Run](#how-to-run)
+13. [Environment Variables](#environment-variables)
+14. [Example Prompts](#example-prompts)
+15. [Evaluations](#evaluations)
+16. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -42,6 +44,13 @@ In simple terms:
 ---
 
 ## High-Level Architecture
+
+![Voyager AI — System Architecture](docs/diagrams/svg/voyager-system.svg)
+
+*Diagram source: [`docs/diagrams/archify/voyager-system.architecture.json`](docs/diagrams/archify/voyager-system.architecture.json) · [Regenerate](docs/diagrams/README.md)*
+
+<details>
+<summary>Mermaid view (alternative)</summary>
 
 ```mermaid
 flowchart TB
@@ -97,6 +106,8 @@ flowchart TB
     FollowUp --> ST
     FollowUp --> LT
 ```
+
+</details>
 
 ---
 
@@ -175,6 +186,13 @@ A dedicated `memory/` module with `MemoryManager` as the single entry point. Age
 
 ## User Flow
 
+![Voyager AI — User Flow](docs/diagrams/svg/voyager-user-flow.svg)
+
+*Diagram source: [`docs/diagrams/archify/voyager-user-flow.workflow.json`](docs/diagrams/archify/voyager-user-flow.workflow.json)*
+
+<details>
+<summary>Mermaid view (alternative)</summary>
+
 ```mermaid
 flowchart TD
     A[Open Streamlit App] --> B[Enter Username + Save]
@@ -208,6 +226,8 @@ flowchart TD
     P --> D
 ```
 
+</details>
+
 ### Example user journey
 
 1. **Rahul** saves username → sees welcome message.
@@ -220,6 +240,10 @@ flowchart TD
 ---
 
 ## Memory System
+
+![Voyager AI — Memory Flow](docs/diagrams/svg/voyager-memory.svg)
+
+*Diagram source: [`docs/diagrams/archify/voyager-memory.dataflow.json`](docs/diagrams/archify/voyager-memory.dataflow.json) · Full guide: [`memory/README.md`](memory/README.md)*
 
 Voyager AI uses **two separate memory systems** with different keys, lifetimes, and purposes. They are **not mixed** — each has a clear job.
 
@@ -269,6 +293,26 @@ PostgresSaver checkpoints the full state after each step automatically.
 
 **Full interview guide:** [`memory/README.md`](memory/README.md)  
 **Setup & testing:** [`docs/MEMORY.md`](docs/MEMORY.md)
+
+---
+
+## Safety (Guardrails)
+
+NeMo Guardrails run **before** the message router (input) and **after** agent replies (output). Blocked messages never reach LangGraph.
+
+![Voyager AI — Guardrails Flow](docs/diagrams/svg/voyager-guardrails.svg)
+
+*Full guide: [`guardrails/README.md`](guardrails/README.md)*
+
+---
+
+## Observability (LangSmith)
+
+Every trip-planning run is traced in LangSmith with graph nodes, LLM calls, metadata (`user_id`, `thread_id`), and tags.
+
+![Voyager AI — Observability Flow](docs/diagrams/svg/voyager-observability.svg)
+
+*Full guide: [`docs/LANGSMITH.md`](docs/LANGSMITH.md)*
 
 ---
 
@@ -682,6 +726,10 @@ What can you do?
 ## Evaluations
 
 Voyager AI ships **13 eval metrics** in three suites (CI / nightly / memory). Results append to Markdown logs under `evals/results/`.
+
+![Voyager AI — Evaluation Flow](docs/diagrams/svg/voyager-evals.svg)
+
+*Diagram source: [`docs/diagrams/archify/voyager-evals.workflow.json`](docs/diagrams/archify/voyager-evals.workflow.json)*
 
 | Suite | Command | Schedule |
 |-------|---------|----------|

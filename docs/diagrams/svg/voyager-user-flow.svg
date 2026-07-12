@@ -1,0 +1,113 @@
+<svg viewBox="0 0 720 776" role="img" aria-label="Voyager AI — User Message Flow — Greeting · follow-up · or full trip plan (workflow diagram)">
+        <!-- Definitions -->
+        <defs>
+          <marker id="arrowhead" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-default" />
+          </marker>
+          <marker id="arrowhead-emphasis" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-emphasis" />
+          </marker>
+          <marker id="arrowhead-security" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-security" />
+          </marker>
+          <marker id="arrowhead-dashed" markerWidth="10" markerHeight="7" refX="9" refY="3.5" orient="auto">
+            <polygon points="0 0, 10 3.5, 0 7" class="m-dashed" />
+          </marker>
+          <pattern id="grid" width="40" height="40" patternUnits="userSpaceOnUse">
+            <path d="M 40 0 L 0 0 0 40" class="c-grid" stroke-width="0.5"/>
+          </pattern>
+        </defs>
+
+        <!-- Background Grid -->
+        <rect width="100%" height="100%" fill="url(#grid)" />
+
+        <!-- Swimlanes -->
+        <rect x="40" y="52" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="74" class="t-dim" font-size="10" font-weight="600">01 / User</text>
+
+        <rect x="40" y="176" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="198" class="t-dim" font-size="10" font-weight="600">02 / Streamlit</text>
+
+        <rect x="40" y="300" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="322" class="t-dim" font-size="10" font-weight="600">03 / Guardrails</text>
+
+        <rect x="40" y="424" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="446" class="t-dim" font-size="10" font-weight="600">04 / Router</text>
+
+        <rect x="40" y="548" width="640" height="104" rx="10" class="c-lane" stroke-width="1"/>
+        <text x="54" y="570" class="t-dim" font-size="10" font-weight="600">05 / Execution</text>
+
+        <!-- Phase headers -->
+
+
+        <!-- Workflow groups -->
+
+
+        <!-- Edge paths -->
+        <path d="M 134 119 L 134 166 L 174 166 L 174 243" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path d="M 220 269 L 220 290 L 300 290 L 300 341" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path d="M 355 367 L 384 367" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+        <path d="M 300 393 L 300 414 L 430 414 L 430 465" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path d="M 430 517 L 430 538 L 500 538 L 500 589" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path d="M 560 615 L 560 414 L 625 414 L 625 269" class="a-emphasis" stroke-width="1.8" marker-end="url(#arrowhead-emphasis)"/>
+        <path d="M 476 367 L 692 367 L 692 217 L 625 217" class="a-security" stroke-width="1.4" marker-end="url(#arrowhead-security)"/>
+
+        <!-- Nodes -->
+        <rect x="42" y="93" width="92" height="52" rx="6" class="c-mask"/>
+        <rect x="42" y="93" width="92" height="52" rx="6" class="c-external" stroke-width="1.5"/>
+        <text x="88" y="114" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Message</text>
+        <text x="88" y="131" class="t-muted" font-size="8" text-anchor="middle">user input</text>
+
+        <rect x="174" y="217" width="92" height="52" rx="6" class="c-mask"/>
+        <rect x="174" y="217" width="92" height="52" rx="6" class="c-frontend" stroke-width="1.5"/>
+        <text x="220" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Receive</text>
+        <text x="220" y="255" class="t-muted" font-size="8" text-anchor="middle">frontend</text>
+
+        <rect x="245" y="341" width="110" height="52" rx="6" class="c-mask"/>
+        <rect x="245" y="341" width="110" height="52" rx="6" class="c-security" stroke-width="1.5"/>
+        <text x="300" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Guardrails</text>
+        <text x="300" y="379" class="t-muted" font-size="8" text-anchor="middle">input check</text>
+
+        <rect x="384" y="341" width="92" height="52" rx="6" class="c-mask"/>
+        <rect x="384" y="341" width="92" height="52" rx="6" class="c-security" stroke-width="1.5"/>
+        <text x="430" y="362" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Refusal</text>
+        <text x="430" y="379" class="t-muted" font-size="8" text-anchor="middle">blocked</text>
+
+        <rect x="375" y="465" width="110" height="52" rx="6" class="c-mask"/>
+        <rect x="375" y="465" width="110" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+        <text x="430" y="486" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Router</text>
+        <text x="430" y="503" class="t-muted" font-size="8" text-anchor="middle">classify</text>
+
+        <rect x="440" y="589" width="120" height="52" rx="6" class="c-mask"/>
+        <rect x="440" y="589" width="120" height="52" rx="6" class="c-backend" stroke-width="1.5"/>
+        <text x="500" y="610" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Execute</text>
+        <text x="500" y="627" class="t-muted" font-size="8" text-anchor="middle">greet / follow / graph</text>
+
+        <rect x="579" y="217" width="92" height="52" rx="6" class="c-mask"/>
+        <rect x="579" y="217" width="92" height="52" rx="6" class="c-frontend" stroke-width="1.5"/>
+        <text x="625" y="238" class="t-primary" font-size="11" font-weight="600" text-anchor="middle">Reply</text>
+        <text x="625" y="255" class="t-muted" font-size="8" text-anchor="middle">output guard</text>
+
+        <!-- Edge labels -->
+
+
+        <rect x="348" y="270" width="34" height="14" rx="3" class="c-mask"/>
+        <text x="365" y="280" class="t-security" font-size="8" text-anchor="middle">block</text>
+
+
+
+
+
+        <!-- Legend -->
+        <text x="175" y="676" class="t-primary" font-size="10" font-weight="600">Legend</text>
+        <rect x="175" y="688" width="14" height="9" rx="2" class="c-frontend" stroke-width="1"/>
+        <text x="195" y="696" class="t-muted" font-size="7">User UI</text>
+        <rect x="260" y="688" width="14" height="9" rx="2" class="c-backend" stroke-width="1"/>
+        <text x="280" y="696" class="t-muted" font-size="7">Agent logic</text>
+        <rect x="370" y="688" width="14" height="9" rx="2" class="c-security" stroke-width="1"/>
+        <text x="390" y="696" class="t-muted" font-size="7">Policy</text>
+        <rect x="455" y="688" width="14" height="9" rx="2" class="c-messagebus" stroke-width="1"/>
+        <text x="475" y="696" class="t-muted" font-size="7">Tool action</text>
+        <rect x="565" y="688" width="14" height="9" rx="2" class="c-database" stroke-width="1"/>
+        <text x="585" y="696" class="t-muted" font-size="7">Context / trace</text>
+      </svg>
