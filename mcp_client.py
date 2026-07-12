@@ -13,8 +13,7 @@ AVIATION_STACK_API_KEY = os.getenv("AVIATIONSTACK_API_KEY")
 OPENWEATHER_API_KEY = os.getenv("OPENWEATHER_API_KEY")
 
 PROJECT_ROOT = Path(__file__).resolve().parent
-REPO_ROOT = PROJECT_ROOT.parent
-AVIATIONSTACK_ROOT = REPO_ROOT / "aviationstack-mcp-main"
+AVIATIONSTACK_ROOT = PROJECT_ROOT / "aviationstack-mcp-main"
 WEATHER_SERVER_SCRIPT = PROJECT_ROOT / "custom_weather_mcp_server.py"
 
 

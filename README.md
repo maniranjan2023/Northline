@@ -1,6 +1,8 @@
 # Voyager AI — Multi-Agent Travel Planning with LangGraph + MCP + Memory
 
-**Voyager AI** is an intelligent travel planning application that uses **multiple specialist AI agents** connected to **real-world tools** through the **Model Context Protocol (MCP)**. Users chat in a friendly Streamlit UI, and the system plans trips by calling flight, hotel, and weather services — then builds a full itinerary. The app also remembers users across sessions using **short-term** and **long-term memory** stored in **Neon PostgreSQL**.
+**Voyager AI** is an intelligent travel planning application that uses **multiple specialist AI agents** connected to **real-world tools** through the **Model Context Protocol (MCP)**. Users chat in a friendly Streamlit UI, and the system plans trips by calling flight, hotel, weather, and research services — then builds a full itinerary. The app uses a **two-tier memory architecture**: **short-term session memory** via LangGraph + Neon PostgreSQL, and **long-term user memory** via **Mem0**.
+
+> **Memory deep-dive:** See [`memory/README.md`](memory/README.md) for interview-ready explanation of short-term vs long-term (Mem0) flows.
 
 ---
 
@@ -18,7 +20,8 @@
 10. [How to Run](#how-to-run)
 11. [Environment Variables](#environment-variables)
 12. [Example Prompts](#example-prompts)
-13. [Troubleshooting](#troubleshooting)
+13. [Evaluations](#evaluations)
+14. [Troubleshooting](#troubleshooting)
 
 ---
 
@@ -27,13 +30,14 @@
 In simple terms:
 
 1. You enter a **username** and describe a trip (e.g. *"Plan a 7-day Japan trip under ₹2L"*).
-2. The app runs **4 specialist agents** one by one: Flights → Hotels → Weather → Itinerary.
+2. The app runs **6 specialist agents** one by one: Planner → Research → Hotels → Flights → Activities → Itinerary.
 3. Each agent calls **MCP tools** (search APIs, aviation data, weather APIs) to get real information.
 4. The final agent combines everything into a **day-by-day travel plan**.
-5. The system **saves memory** so when you ask follow-ups like *"Where did I plan to go?"*, it answers instantly **without re-running all agents**.
-6. If you **switch users** (e.g. Rahul vs Priya), each user gets their **own separate memory and saved plan**.
+5. **Short-term memory** (PostgresSaver) saves the full trip state for this chat session.
+6. **Long-term memory** (Mem0) saves durable user preferences (vegetarian, budget, etc.) across all sessions.
+7. Follow-ups like *"Where did I plan to go?"* are answered instantly **without re-running all agents**.
 
-**Tech stack:** LangGraph · LangChain · Groq LLM · MCP · Neon PostgreSQL · pgvector · Streamlit
+**Tech stack:** LangGraph · LangChain · Groq LLM · MCP · Mem0 · Neon PostgreSQL · Streamlit
 
 ---
 
@@ -57,14 +61,16 @@ flowchart TB
     Router --> FollowUp
     Router --> NewPlan
 
-    subgraph Graph["LangGraph Pipeline (main.py)"]
-        ML[memory_load]
-        FA[flight_agent]
+    subgraph Graph["LangGraph Pipeline (main.py + graph/)"]
+        RM[retrieve_memory]
+        PA[planner_agent]
+        RA[research_agent]
         HA[hotel_agent]
-        WA[weather_agent]
-        IA[itinerary_agent]
-        MS[memory_save]
-        ML --> FA --> HA --> WA --> IA --> MS
+        FA[flight_agent]
+        AA[activity_agent]
+        FR[final_response_agent]
+        SM[store_memory]
+        RM --> PA --> RA --> HA --> FA --> AA --> FR --> SM
     end
 
     NewPlan --> Graph
@@ -75,20 +81,21 @@ flowchart TB
         Weather[Custom Local: Weather stdio MCP]
     end
 
-    FA --> Aviation
+    RA --> Tavily
     HA --> Tavily
-    WA --> Weather
+    FA --> Aviation
+    AA --> Weather
 
-    subgraph DB["Neon PostgreSQL"]
-        ST[Short-term: PostgresSaver checkpoints]
-        LT[Long-term: pgvector memories]
+    subgraph Memory["Memory Layer"]
+        ST[Short-term: PostgresSaver<br/>key = thread_id]
+        LT[Long-term: Mem0 Platform<br/>key = user_id]
     end
 
+    RM --> LT
+    SM --> LT
     Graph --> ST
-    MS --> LT
-    FollowUp --> LT
     FollowUp --> ST
-    ML --> LT
+    FollowUp --> LT
 ```
 
 ---
@@ -99,13 +106,15 @@ flowchart TB
 
 | Agent | Role | MCP / Tool Used | Output |
 |-------|------|-----------------|--------|
-| **Flight Agent** | Finds airports, airlines, routes, fare guidance | AviationStack MCP (`list_airports`, `list_airlines`) | `flight_results` |
-| **Hotel Agent** | Searches hotels and stay options | Tavily MCP (`tavily_search`) | `hotel_results` |
-| **Weather Agent** | Gets current weather + forecast for destination | Custom Weather MCP (`get_current_weather`, `get_forecast`) | `weather_results` |
-| **Itinerary Agent** | Combines all results into a day-by-day plan | Groq LLM (no MCP) | `itinerary` |
+| **Planner Agent** | Creates personalized trip outline from query + Mem0 context | Groq LLM | `planner_output` |
+| **Research Agent** | Researches destination highlights | Tavily MCP | `research_output` |
+| **Hotel Agent** | Searches hotels and stay options | Tavily MCP | `hotel_results` |
+| **Flight Agent** | Finds airports, airlines, routes, fare guidance | AviationStack MCP | `flight_results` |
+| **Activity Agent** | Weather + activities for destination | Weather MCP + Tavily | `activity_results` |
+| **Itinerary Agent** | Combines all results into day-by-day plan | Groq LLM | `itinerary` |
 
 **How it works inside:**  
-`main.py` defines a `StateGraph` where each agent is a node. Agents run **sequentially** — each reads from shared `TravelState` and writes its result back. The `with_memory()` wrapper in `memory/nodes/agent_wrapper.py` records each agent's output into short-term state automatically.
+`graph/builder.py` defines a `StateGraph` where agents run **sequentially**. Each reads `memory_context` from state (loaded by `retrieve_memory` from Mem0). The `with_memory()` wrapper records each agent's output into short-term checkpointed state.
 
 ---
 
@@ -175,18 +184,18 @@ flowchart TD
 
     E -->|Greeting| F[Short Friendly Reply]
     E -->|Follow-up| G{Plan Exists?}
-    E -->|New Plan| H[Run 4 Agents via LangGraph]
+    E -->|New Plan| H[Run 6 Agents via LangGraph]
     E -->|Clarify| I[Ask for Trip Details]
 
     G -->|No| J[No Plan Yet Reply]
-    G -->|Yes| K[Load Plan from DB]
+    G -->|Yes| K[Load Plan from Checkpoint]
     K --> L[answer_follow_up - single LLM call]
 
-    H --> M[memory_load]
-    M --> N[flight → hotel → weather → itinerary]
-    N --> O[memory_save]
+    H --> M[retrieve_memory from Mem0]
+    M --> N[planner → research → hotel → flight → activity → itinerary]
+    N --> O[store_memory to Mem0]
     O --> P[Show Summary + Itinerary + Agent Cards]
-    P --> Q[Save trip_plan to Neon]
+    P --> Q[PostgresSaver auto-checkpoints state]
 
     B --> R[Switch User]
     R --> S[Load New User's Saved Plan]
@@ -212,201 +221,54 @@ flowchart TD
 
 ## Memory System
 
-### Overview
+Voyager AI uses **two separate memory systems** with different keys, lifetimes, and purposes. They are **not mixed** — each has a clear job.
 
-```mermaid
-flowchart LR
-    subgraph ShortTerm["Short-Term Memory"]
-        ST1[LangGraph TravelState]
-        ST2[PostgresSaver Checkpoint]
-        ST3["Key: thread_id = rahul_chat"]
-        ST1 --> ST2 --> ST3
-    end
+| Tier | Technology | Key | Scope | Analogy |
+|------|------------|-----|-------|---------|
+| **Short-term** | LangGraph `PostgresSaver` on Neon | `thread_id` | One chat session | Working memory — *what we're doing right now* |
+| **Long-term** | [Mem0](https://docs.mem0.ai/integrations/langgraph) Platform | `user_id` | All sessions forever | User profile — *who this person is* |
 
-    subgraph LongTerm["Long-Term Memory"]
-        LT1[long_term_memories table]
-        LT2[pgvector semantic search]
-        LT3["Key: user_id = rahul"]
-        LT1 --> LT2 --> LT3
-    end
+```
+One user  →  many conversations
 
-    NewPlan[New Trip Request] --> LoadLT[Load relevant long-term memories]
-    LoadLT --> Agents[Agents run with memory_context]
-    Agents --> SaveST[Checkpoint saved automatically]
-    Agents --> SaveLT[Summaries + trip_plan saved]
-
-    FollowUp[Follow-up Question] --> LoadPlan[Load trip_plan / checkpoint]
-    LoadPlan --> LLM[Single LLM answer]
+user_id   = rahul          →  Mem0 (preferences persist forever)
+thread_id = rahul_chat     →  PostgresSaver (this session's full trip state)
 ```
 
----
+### Short-term memory (session)
 
-### Short-Term Memory (Working / Session Memory)
+- **What:** Full graph state — itinerary, agent outputs, messages, errors
+- **When:** Auto-saved after **every graph node** by LangGraph checkpointer
+- **Used for:** Restoring the current trip after refresh; follow-up questions in the same session
 
-| Property | Value |
-|----------|-------|
-| **What** | Current graph run state — messages, agent outputs, itinerary, errors |
-| **Where** | LangGraph `TravelState` + Neon `PostgresSaver` |
-| **Key** | `thread_id` → `{username}_chat` |
-| **Lifetime** | Persists in DB per thread; used when resuming a session |
-| **Cognitive analogy** | **Working memory** — "what we're doing right now" |
+### Long-term memory (Mem0)
 
-**What is stored:**
-- `user_query`, `flight_results`, `hotel_results`, `weather_results`, `itinerary`
-- `agent_outputs`, `tool_outputs`, `errors`, `retry_count`
-- `memory_context` (loaded from long-term at start of run)
+- **What:** Durable user facts only — diet, budget, travel style, airline preference
+- **When retrieved:** At graph **start** (`retrieve_memory` node) before any agent runs
+- **When saved:** At graph **end** (`store_memory` node) after the itinerary is built
+- **Used for:** Personalizing **new trips** across sessions without repeating preferences
 
-**When it is used:**
-- During a full agent pipeline run (each node updates state)
-- When restoring a plan via `app.get_state(config)` in `load_user_plan()`
-- Automatically checkpointed after each graph step by LangGraph
+### Graph memory flow
 
-**Implementation files:**
-- `memory/services/short_term_service.py` — builds and patches state
-- `db_config.py` — creates `PostgresSaver` checkpointer
-- `main.py` — `app = graph.compile(checkpointer=checkpointer)`
+```
+START → retrieve_memory (Mem0 search)
+      → planner → research → hotel → flight → activity → final_response
+      → store_memory (Mem0 save)
+      → END
 
----
-
-### Long-Term Memory (Persistent User Knowledge)
-
-| Property | Value |
-|----------|-------|
-| **What** | Structured facts, summaries, and full trip snapshots per user |
-| **Where** | Neon table `long_term_memories` + **pgvector** embeddings |
-| **Key** | `user_id` → sanitized username |
-| **Retrieval** | **Semantic search** (embed query → find similar memories) |
-| **Cognitive analogy** | Mix of **semantic** + **episodic** memory |
-
-**When it is used:**
-1. **Start of new plan** — `memory_load` node retrieves relevant memories → injected as `memory_context` into agent prompts
-2. **End of new plan** — `memory_save` node summarizes run and stores new memories
-3. **Follow-up questions** — `load_user_plan()` + `load_memory_context()` feed the LLM
-4. **User switch** — `load_trip_plan()` restores last itinerary per user
-
-**Implementation files:**
-- `memory/memory_manager.py` — facade for all memory operations
-- `memory/services/long_term_service.py` — semantic retrieval + storage
-- `memory/services/embedding_service.py` — `sentence-transformers/all-MiniLM-L6-v2`
-- `memory/repositories/long_term_repository.py` — SQL + pgvector queries
-- `memory/services/summarization_service.py` — LLM extracts memories after each run
-- `migrations/001_memory_tables.sql` — schema setup
-
----
-
-### Long-Term Memory Types (Semantic vs Episodic)
-
-This project uses a **hybrid** long-term memory model — not pure episodic or pure semantic.
-
-```mermaid
-flowchart TB
-    subgraph Semantic["Semantic-like Memory"]
-        P[preference<br/>e.g. Prefers trips under ₹5L]
-        UF[user_fact<br/>e.g. Travels with family]
-        SP[success_pattern<br/>e.g. Japan trips worked well]
-    end
-
-    subgraph Episodic["Episodic-like Memory"]
-        S[summary<br/>e.g. Planned 7-day Japan trip]
-        TP[trip_plan<br/>Full itinerary snapshot JSON]
-    end
-
-    Run[Completed Trip Run] --> Summarizer[SummarizationService LLM]
-    Summarizer --> Semantic
-    Summarizer --> Episodic
-    Run --> TP
-
-    Query[User Query] --> Embed[Embed query text]
-    Embed --> VectorSearch[pgvector cosine search]
-    VectorSearch --> Semantic
-    VectorSearch --> Episodic
-
-    FollowUpQ[Follow-up Question] --> TP
+PostgresSaver checkpoints the full state after each step automatically.
 ```
 
-| Memory Type | Category | What It Stores | Example |
-|-------------|----------|----------------|---------|
-| `preference` | **Semantic** | General user preferences | "Prefers budget trips under ₹2L" |
-| `user_fact` | **Semantic** | Stable facts about the user | "Often plans international trips" |
-| `success_pattern` | **Semantic / Procedural** | What planning patterns worked | "7-day trips with hotels and flights" |
-| `summary` | **Episodic (compressed)** | Short summary of a past trip event | "Planned a Japan trip in July" |
-| `trip_plan` | **Episodic (full snapshot)** | Complete plan: itinerary, flights, hotels, weather | Full JSON in `metadata` column |
-| `feedback` | **Semantic** | User feedback (reserved for future use) | — |
+### Example
 
-**Important distinction:**
-- **Storage type** = semantic facts + episodic summaries/snapshots
-- **Retrieval method** = semantic vector search (meaning-based, not keyword matching)
+1. Rahul says: *"I'm vegetarian, budget $3000, prefer direct flights. Plan Tokyo."*
+2. **Mem0** stores: vegetarian, $3000 budget, direct flights (long-term)
+3. **PostgresSaver** stores: full Tokyo itinerary + agent outputs (short-term)
+4. Next week Rahul says: *"Plan Bali"* → **Mem0** injects preferences into agents automatically
+5. Rahul asks: *"Where am I going?"* → **PostgresSaver** answers from checkpoint (fast, no agents)
 
-**What is NOT stored:**
-- Full raw chat logs in long-term memory
-- Every message verbatim (only structured extractions)
-
----
-
-### Memory Flow During a New Trip
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant UI as frontend.py
-    participant G as LangGraph
-    participant MM as MemoryManager
-    participant LT as Long-Term DB
-    participant ST as Short-Term Checkpoint
-
-    U->>UI: Plan a 7-day Japan trip
-    UI->>G: app.stream(input_state, config)
-    G->>MM: memory_load_node
-    MM->>LT: retrieve_relevant(user_id, query)
-    LT-->>MM: preferences, summaries, patterns
-    MM-->>G: memory_context in state
-
-    G->>G: flight_agent (Aviation MCP)
-    G->>G: hotel_agent (Tavily MCP)
-    G->>G: weather_agent (Weather MCP)
-    G->>G: itinerary_agent (LLM combines all)
-    G->>ST: auto-checkpoint after each step
-
-    G->>MM: memory_save_node
-    MM->>MM: summarize_travel_run (LLM)
-    MM->>LT: store preference/summary records
-    MM->>LT: save trip_plan snapshot
-    MM-->>G: execution_status = completed
-
-    G-->>UI: itinerary + agent outputs
-    UI-->>U: Human summary + expandable agent cards
-```
-
----
-
-### Memory Flow During a Follow-Up
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant UI as frontend.py
-    participant R as chat_router
-    participant M as main.py
-    participant LT as Long-Term DB
-    participant ST as Short-Term Checkpoint
-    participant LLM as Groq LLM
-
-    U->>UI: Where did I plan to go?
-    UI->>R: classify_message()
-    R-->>UI: FOLLOW_UP
-    UI->>M: load_user_plan(username)
-    M->>ST: app.get_state(thread_id)
-    alt checkpoint has itinerary
-        ST-->>M: full plan from checkpoint
-    else no checkpoint
-        M->>LT: get_latest_trip_plan(user_id)
-        LT-->>M: trip_plan metadata JSON
-    end
-    M->>LT: load_memory_context(user_id, query)
-    M->>LLM: answer_follow_up(prompt with plan)
-    LLM-->>UI: Japan
-    UI-->>U: Instant reply, no agents run
-```
+**Full interview guide:** [`memory/README.md`](memory/README.md)  
+**Setup & testing:** [`docs/MEMORY.md`](docs/MEMORY.md)
 
 ---
 
@@ -565,21 +427,27 @@ forecast_data = asyncio.run(forecast_mcp_search(city))
 
 ```mermaid
 flowchart LR
-    START((START)) --> ML[memory_load]
-    ML --> FA[flight_agent]
-    FA --> HA[hotel_agent]
-    HA --> WA[weather_agent]
-    WA --> IA[itinerary_agent]
-    IA --> MS[memory_save]
-    MS --> END((END))
+    START((START)) --> RM[retrieve_memory]
+    RM --> PA[planner_agent]
+    PA --> RA[research_agent]
+    RA --> HA[hotel_agent]
+    HA --> FA[flight_agent]
+    FA --> AA[activity_agent]
+    AA --> FR[final_response_agent]
+    FR --> SM[store_memory]
+    SM --> END((END))
 ```
 
-**Graph definition (`main.py`):**
+**Graph flow:**
 ```
-memory_load → flight_agent → hotel_agent → weather_agent → itinerary_agent → memory_save
+retrieve_memory → planner → research → hotel → flight → activity → final_response → store_memory
 ```
 
-Each agent node is wrapped with `with_memory()` so outputs are tracked in `TravelState`. The graph is compiled with a Postgres checkpointer for persistence:
+- **`retrieve_memory`** — queries Mem0, fills `memory_context` before agents run
+- **`store_memory`** — extracts durable facts, saves to Mem0 after itinerary
+- **PostgresSaver** — checkpoints full `TravelState` after every node automatically
+
+Each agent reads `memory_context` from state and personalizes its output. The graph is compiled with a Postgres checkpointer:
 
 ```python
 app = graph.compile(checkpointer=checkpointer)
@@ -591,30 +459,30 @@ app = graph.compile(checkpointer=checkpointer)
 
 ```
 Mcp-proj/
-├── main.py                      # LangGraph graph, agents, follow-up logic
+├── main.py                      # App entry, follow-up logic, run config
 ├── frontend.py                  # Streamlit chat UI
 ├── chat_router.py               # Message intent classification
 ├── mcp_client.py                # MultiServerMCPClient (3 MCP servers)
 ├── custom_weather_mcp_server.py # Custom local weather MCP
-├── db_config.py                 # Neon connection + checkpointer setup
-├── requirements.txt
-├── .env.example
-├── migrations/
-│   └── 001_memory_tables.sql    # Long-term memory schema + pgvector
+├── db_config.py                 # Neon PostgresSaver (short-term memory)
+├── graph/
+│   ├── builder.py               # LangGraph wiring
+│   └── nodes/                   # retrieve_memory, agents, store_memory
 ├── memory/
-│   ├── memory_manager.py        # Single memory entry point
-│   ├── models.py                # MemoryType, MemoryRecord
-│   ├── nodes/
-│   │   ├── memory_load_node.py  # Load long-term at graph start
-│   │   ├── memory_save_node.py  # Save long-term at graph end
-│   │   └── agent_wrapper.py     # with_memory() decorator
-│   ├── services/
-│   │   ├── short_term_service.py
-│   │   ├── long_term_service.py
-│   │   ├── embedding_service.py
-│   │   └── summarization_service.py
-│   └── repositories/
-│       └── long_term_repository.py
+│   ├── memory_manager.py        # Single memory facade (Mem0 + state helpers)
+│   ├── retriever.py             # Mem0 search + prompt formatting
+│   ├── extractor.py             # LLM fact extraction before Mem0 save
+│   ├── provider/mem0_provider.py# Official Mem0 MemoryClient integration
+│   └── README.md                # Interview-ready memory architecture guide
+├── docs/
+│   ├── MEMORY.md                # Setup and testing guide
+│   └── LANGSMITH.md             # Observability guide
+├── evals/                       # DeepEval + custom eval suites (see evals/README.md)
+│   ├── datasets/                # golden_ci, golden_nightly, golden_memory
+│   ├── results/                 # custom.md, single_turn.md, multi_turn.md
+│   ├── test_ci.py               # PR: guardrails, injection, router
+│   ├── test_nightly.py          # Daily: 5 agent metrics
+│   └── test_memory.py           # Weekly: 5 conversation metrics
 └── tests/
     └── test_memory_manager.py
 
@@ -635,6 +503,7 @@ Mcp-proj/
 | AviationStack API key | https://aviationstack.com |
 | OpenWeatherMap API key | https://openweathermap.org |
 | Neon PostgreSQL (free tier) | https://neon.tech |
+| Mem0 API key (free tier) | https://app.mem0.ai |
 
 ---
 
@@ -661,23 +530,38 @@ langgraph_env3\Scripts\activate
 pip install -r requirements.txt
 ```
 
-> First run downloads the embedding model (`sentence-transformers/all-MiniLM-L6-v2`) — this may take a few minutes.
+> First run may take a moment while dependencies initialize.
 
 ---
 
-### Step 4: Setup Neon PostgreSQL
+### Step 4: Setup Neon PostgreSQL (short-term memory)
 
 1. Create a free account at [neon.tech](https://neon.tech)
 2. Create a new project and database
-3. In Neon dashboard → **Extensions** → enable **`vector`** (pgvector)
-4. Copy the **pooled** connection string
-5. Paste into `.env` as `DATABASE_URL`
+3. Copy the **pooled** connection string
+4. Paste into `.env` as `DATABASE_URL`
 
-The app auto-creates LangGraph checkpoint tables and long-term memory tables on first run.
+The app auto-creates LangGraph checkpoint tables on first run via `PostgresSaver.setup()`.
 
 ---
 
-### Step 5: Configure `.env`
+### Step 5: Setup Mem0 (long-term memory)
+
+1. Create a free account at [app.mem0.ai](https://app.mem0.ai)
+2. Go to **Settings → API Keys** and create a key
+3. Add to `.env`:
+
+```env
+MEM0_API_KEY=your_mem0_api_key
+MEM0_ENABLED=true
+MEMORY_TOP_K=8
+```
+
+Official integration reference: [Mem0 + LangGraph docs](https://docs.mem0.ai/integrations/langgraph)
+
+---
+
+### Step 6: Configure `.env`
 
 ```powershell
 copy .env.example .env
@@ -691,6 +575,8 @@ TAVILY_API_KEY=your_tavily_api_key
 AVIATIONSTACK_API_KEY=your_aviationstack_api_key
 OPENWEATHER_API_KEY=your_openweather_api_key
 DATABASE_URL=postgresql://user:password@ep-xxxx-pooler.region.aws.neon.tech/neondb?sslmode=require
+MEM0_API_KEY=your_mem0_api_key
+MEM0_ENABLED=true
 ```
 
 > **Important:** No spaces around `=` in `.env` files.  
@@ -698,7 +584,7 @@ DATABASE_URL=postgresql://user:password@ep-xxxx-pooler.region.aws.neon.tech/neon
 
 ---
 
-### Step 6: Setup AviationStack MCP (local dependency)
+### Step 7: Setup AviationStack MCP (local dependency)
 
 The aviation MCP lives in a **sibling folder**:
 
@@ -762,10 +648,12 @@ python main.py
 | `TAVILY_API_KEY` | Yes | Tavily search MCP |
 | `AVIATIONSTACK_API_KEY` | Yes | AviationStack flight data MCP |
 | `OPENWEATHER_API_KEY` | Yes | OpenWeatherMap for custom weather MCP |
-| `DATABASE_URL` | Yes | Neon PostgreSQL pooled connection string |
-| `EMBEDDING_MODEL` | No | Default: `sentence-transformers/all-MiniLM-L6-v2` |
-| `MEMORY_TOP_K` | No | How many memories to retrieve (default: 5) |
-| `MEMORY_DUPLICATE_THRESHOLD` | No | Similarity threshold for dedup (default: 0.92) |
+| `DATABASE_URL` | Yes | Neon PostgreSQL for LangGraph PostgresSaver (short-term) |
+| `MEM0_API_KEY` | Yes | Mem0 Platform API key (long-term user memory) |
+| `MEM0_ENABLED` | No | Enable/disable Mem0 (default: `true`) |
+| `MEMORY_TOP_K` | No | Max memories retrieved per query (default: 8) |
+| `LANGSMITH_TRACING` | No | Enable LangSmith observability |
+| `LANGSMITH_API_KEY` | No | LangSmith API key |
 
 ---
 
@@ -791,6 +679,20 @@ What can you do?
 
 ---
 
+## Evaluations
+
+Voyager AI ships **13 eval metrics** in three suites (CI / nightly / memory). Results append to Markdown logs under `evals/results/`.
+
+| Suite | Command | Schedule |
+|-------|---------|----------|
+| Custom (3) | `pytest evals/test_ci.py -v` | Every PR |
+| Single-turn (5) | `EVAL_LIVE=1 deepeval test run evals/test_nightly.py --verbose` | Daily |
+| Multi-turn (5) | `EVAL_LIVE=1 deepeval test run evals/test_memory.py --verbose` | Weekly |
+
+**Full guide (why / what / how, interview Q&A):** [`evals/README.md`](evals/README.md)
+
+---
+
 ## Troubleshooting
 
 | Problem | Solution |
@@ -798,28 +700,30 @@ What can you do?
 | `PoolTimeout` on Neon | Ensure `DATABASE_URL` uses the **pooled** connection string. App uses `pool.open(wait=True)`. |
 | `ModuleNotFoundError: langchain_mcp_adapters` | Activate venv: `langgraph_env3\Scripts\activate` before running Streamlit |
 | Aviation MCP fails | Run `uv sync` in `aviationstack-mcp-main/`. Check `AVIATIONSTACK_API_KEY`. |
-| pgvector errors | Enable `vector` extension in Neon dashboard |
+| Mem0 not retrieving preferences | Verify `MEM0_API_KEY` in `.env`; wait 15s after first trip (async indexing) |
 | Follow-up says "no plan yet" | Create at least one full trip plan for that username first |
-| Memory not restored after user switch | Restart Streamlit after code changes; verify `DATABASE_URL` is correct |
-| Slow first run | Embedding model downloads on first use — normal |
+| Memory not restored after refresh | Verify `DATABASE_URL`; same username must use same `thread_id` |
+| Slow first run | MCP tool initialization on first agent call — normal |
 
 ---
 
 ## Interview Quick Reference
 
 **What is this project?**  
-A multi-agent AI travel planner using LangGraph orchestration, MCP tool integration, and dual-layer memory (short-term checkpoints + long-term semantic/episodic storage in Neon).
+A multi-agent AI travel planner using LangGraph orchestration, MCP tool integration, and dual-layer memory (PostgresSaver short-term + Mem0 long-term).
 
-**Short-term memory:** Session state keyed by `thread_id`, auto-saved by LangGraph PostgresSaver.
+**Short-term memory:** Full `TravelState` keyed by `thread_id`, auto-checkpointed by LangGraph PostgresSaver after every node.
 
-**Long-term memory:** Hybrid semantic (preferences, facts) + episodic (summaries, trip snapshots), retrieved via pgvector semantic search, keyed by `user_id`.
+**Long-term memory:** Durable user preferences via Mem0 semantic search, keyed by `user_id`. Retrieved at graph start, saved at graph end after LLM fact extraction.
+
+**Memory deep-dive:** [`memory/README.md`](memory/README.md)
 
 **Three MCP types:**
-1. **Remote** — Tavily over HTTP (hotel search)
+1. **Remote** — Tavily over HTTP (hotel + research search)
 2. **Local** — AviationStack stdio subprocess (flight data)
 3. **Custom local** — `custom_weather_mcp_server.py` stdio subprocess (weather)
 
-**User flow:** Username → router classifies message → greeting / follow-up (no agents) / new plan (4 agents) → memory saved → follow-ups answered from stored plan.
+**User flow:** Username → router classifies message → greeting / follow-up (no agents) / new plan (6 agents + Mem0) → checkpoint saved → follow-ups answered from stored plan.
 
 ---
 

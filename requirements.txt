@@ -10,4 +10,9 @@ requests
 streamlit
 mcp
 pydantic
-sentence-transformers
+mem0ai>=0.1.39
+nemoguardrails>=0.9.0
+fastembed>=0.2.0
+langsmith>=0.1.39
+deepeval>=2.0.0
+pytest>=8.0.0

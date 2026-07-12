@@ -8,7 +8,8 @@
 # Secrets — never commit API keys or DB URLs
 .env
 !.env.example
-
+.nemo-guardrails-demo/
+.deepeval/
 # Local run scripts (machine-specific)
 run.bat
 run.ps1

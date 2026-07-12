@@ -1,0 +1,45 @@
+[
+  {
+    "id": "tokyo_vegetarian",
+    "input": "Plan a 5-day trip to Tokyo. I am vegetarian. Budget around $2000 from New York.",
+    "expected_tools": [
+      "tavily_search",
+      "list_airports",
+      "list_airlines",
+      "get_current_weather",
+      "get_forecast"
+    ],
+    "task_hint": "Complete Tokyo itinerary respecting vegetarian diet with flights, hotels, and activities"
+  },
+  {
+    "id": "paris_romantic",
+    "input": "Plan a 4-day romantic getaway to Paris with boutique hotels and fine dining.",
+    "expected_tools": [
+      "tavily_search",
+      "list_airports",
+      "list_airlines",
+      "get_current_weather"
+    ],
+    "task_hint": "Paris romantic trip plan with hotels and dining"
+  },
+  {
+    "id": "bali_budget",
+    "input": "Plan 6 days in Bali under $1500 including beach activities and weather check.",
+    "expected_tools": [
+      "tavily_search",
+      "get_current_weather",
+      "get_forecast"
+    ],
+    "task_hint": "Budget Bali itinerary with activities and weather"
+  },
+  {
+    "id": "dubai_family",
+    "input": "Plan a 7-day family trip to Dubai with kid-friendly activities and hotels.",
+    "expected_tools": [
+      "tavily_search",
+      "list_airports",
+      "get_current_weather"
+    ],
+    "task_hint": "Family-friendly Dubai plan"
+  }
+]

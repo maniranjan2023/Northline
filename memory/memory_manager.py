@@ -1,71 +1,129 @@
 """
-MemoryManager
--------------
-Single entry point for all memory operations.
+MemoryManager — single facade for short-term + long-term memory.
 
-Rule for the whole app:
-- Agents and UI should call MemoryManager only.
-- Do not read/write memory tables directly outside this class.
+Short-term: LangGraph PostgresSaver (thread_id) — handled by graph checkpointer.
+Long-term: Mem0 (user_id) — handled by this manager.
 """
 
 from __future__ import annotations
 
+import logging
 from typing import Any
 
-from memory.models import RetrievedMemory
-from memory.services.embedding_service import EmbeddingService
-from memory.services.long_term_service import LongTermMemoryService
-from memory.services.short_term_service import ShortTermMemoryService
-from memory.services.summarization_service import SummarizationService
+from langchain_core.messages import HumanMessage
+
+from memory.config import MemoryConfig
+from memory.extractor import MemoryExtractor
+from memory.provider.base import BaseMemoryProvider, MemoryItem
+from memory.provider.mem0_provider import Mem0Provider
+from memory.retriever import MemoryRetriever
+
+logger = logging.getLogger(__name__)
 
 
 class MemoryManager:
-    """Facade that combines short-term and long-term memory behavior."""
+    """Production memory facade — inject into graph nodes, never instantiate Mem0 in nodes."""
 
-    def __init__(self, llm, db_pool, embedding_service: EmbeddingService | None = None):
-        self.short_term = ShortTermMemoryService()
-        self.embedding = embedding_service or EmbeddingService()
-        self.long_term = LongTermMemoryService(db_pool, self.embedding)
-        self.summarizer = SummarizationService(llm)
+    def __init__(
+        self,
+        llm,
+        provider: BaseMemoryProvider | None = None,
+        config: MemoryConfig | None = None,
+    ):
+        self._config = config or MemoryConfig.from_env()
+        self._provider = provider or Mem0Provider(self._config)
+        self._retriever = MemoryRetriever(self._provider, top_k=self._config.memory_top_k)
+        self._extractor = MemoryExtractor(llm, self._provider)
 
-    def build_thread_id(self, user_id: str) -> str:
+    @property
+    def config(self) -> MemoryConfig:
+        return self._config
+
+    def build_thread_id(self, user_id: str, trip_slug: str | None = None) -> str:
         """
-        Build short-term session id from username.
+        Build short-term session id.
 
-        Example: user_id='rahul' -> thread_id='rahul_chat'
+        Examples:
+          user_id='rahul' -> 'rahul_chat' (default session)
+          user_id='rahul', trip_slug='tokyo' -> 'rahul_trip_tokyo'
         """
-        safe_user = self._sanitize_user_id(user_id)
+        safe_user = self.sanitize_user_id(user_id)
+        if trip_slug:
+            safe_slug = "".join(ch for ch in trip_slug.strip().lower() if ch.isalnum() or ch in {"_", "-"})
+            return f"{safe_user}_trip_{safe_slug}" if safe_slug else f"{safe_user}_chat"
         return f"{safe_user}_chat"
 
-    def prepare_session_state(
-        self,
-        user_query: str,
-        user_id: str,
-        session_id: str,
-    ) -> dict[str, Any]:
-        """
-        Load relevant long-term memories and create graph input state.
+    def sanitize_user_id(self, user_id: str) -> str:
+        clean = "".join(ch for ch in user_id.strip().lower() if ch.isalnum() or ch in {"_", "-"})
+        return clean or "anonymous"
 
-        Called before graph execution starts.
+    def build_initial_state(self, user_query: str, user_id: str, thread_id: str) -> dict[str, Any]:
         """
-        memories = self.long_term.retrieve_relevant(user_id=user_id, query=user_query)
-        memory_context = self.format_memories_for_prompt(memories)
-        return self.short_term.build_initial_state(
-            user_query=user_query,
-            user_id=user_id,
-            session_id=session_id,
-            memory_context=memory_context,
+        Create graph input state WITHOUT long-term memory.
+
+        RetrieveMemoryNode loads Mem0 context on graph start.
+        """
+        safe_user = self.sanitize_user_id(user_id)
+        return {
+            "messages": [HumanMessage(content=user_query)],
+            "user_query": user_query,
+            "user_id": safe_user,
+            "thread_id": thread_id,
+            "planner_output": "",
+            "research_output": "",
+            "hotel_results": "",
+            "flight_results": "",
+            "activity_results": "",
+            "itinerary": "",
+            "selected_hotels": [],
+            "selected_flights": [],
+            "activities": [],
+            "destination": "",
+            "memory_context": "",
+            "user_preferences": {},
+            "tool_outputs": {},
+            "agent_outputs": {},
+            "errors": {},
+            "current_step": "start",
+            "llm_calls": 0,
+        }
+
+    async def retrieve_memories(self, user_id: str, query: str) -> list[MemoryItem]:
+        """Retrieve relevant Mem0 memories for a user + query."""
+        safe_user = self.sanitize_user_id(user_id)
+        return await self._retriever.retrieve(safe_user, query)
+
+    async def load_memory_context(self, user_id: str, query: str) -> str:
+        """Formatted memory block for prompts (used by follow-up handler)."""
+        items = await self.retrieve_memories(user_id, query)
+        return self._retriever.format_for_prompt(items)
+
+    def format_memories_for_prompt(self, items: list[MemoryItem]) -> str:
+        return self._retriever.format_for_prompt(items)
+
+    async def save_memory(self, user_id: str, conversation: dict[str, str]) -> int:
+        """
+        Extract and store durable facts from a conversation turn.
+
+        conversation keys: user_message, assistant_response, planner_output (optional)
+        """
+        safe_user = self.sanitize_user_id(user_id)
+        return await self._extractor.save_conversation(
+            safe_user,
+            user_message=conversation.get("user_message", ""),
+            assistant_response=conversation.get("assistant_response", ""),
+            planner_output=conversation.get("planner_output", ""),
         )
 
-    def load_memory_context(self, user_id: str, user_query: str) -> str:
-        """Return only the memory text that agents can inject into prompts."""
-        memories = self.long_term.retrieve_relevant(user_id=user_id, query=user_query)
-        return self.format_memories_for_prompt(memories)
+    async def search_memories(self, user_id: str, query: str, *, limit: int | None = None) -> list[MemoryItem]:
+        safe_user = self.sanitize_user_id(user_id)
+        return await self._provider.search(safe_user, query, limit=limit or self._config.memory_top_k)
 
-    def get_context_for_agent(self, state: dict[str, Any], agent_name: str) -> str:
-        """Give an agent a small memory snippet for its prompt."""
-        base = state.get("memory_context", "No prior memory found.")
-        return f"Known user context:\n{base}\n\nCurrent agent: {agent_name}"
+    async def delete_memory(self, memory_id: str) -> None:
+        await self._provider.delete(memory_id)
+
+    async def update_memory(self, memory_id: str, text: str) -> None:
+        await self._provider.update(memory_id, text)
 
     def record_agent_result(
         self,
@@ -75,86 +133,27 @@ class MemoryManager:
         tool_output: Any | None = None,
         error: str | None = None,
     ) -> dict[str, Any]:
-        """Store one agent result in short-term state."""
-        if error:
-            patch = self.short_term.record_agent_error(agent_name, error)
-        else:
-            patch = self.short_term.record_agent_success(agent_name, output, tool_output)
-
-        # Merge dictionaries because LangGraph uses reducer updates per key.
+        """Track agent output in short-term checkpointed state."""
         merged_agent_outputs = dict(state.get("agent_outputs", {}))
         merged_tool_outputs = dict(state.get("tool_outputs", {}))
         merged_errors = dict(state.get("errors", {}))
-        merged_retry = dict(state.get("retry_count", {}))
 
-        merged_agent_outputs.update(patch.get("agent_outputs", {}))
-        merged_tool_outputs.update(patch.get("tool_outputs", {}))
-        merged_errors.update(patch.get("errors", {}))
-        merged_retry.update(patch.get("retry_count", {}))
+        if error:
+            merged_errors[agent_name] = error
+        else:
+            merged_agent_outputs[agent_name] = output
+            if tool_output is not None:
+                merged_tool_outputs[agent_name] = tool_output
 
         return {
             "agent_outputs": merged_agent_outputs,
             "tool_outputs": merged_tool_outputs,
             "errors": merged_errors,
-            "retry_count": merged_retry,
-            "execution_status": patch.get("execution_status", "running"),
+            "current_step": agent_name if not error else f"{agent_name}_error",
         }
 
-    def persist_run(self, state: dict[str, Any]) -> dict[str, Any]:
-        """
-        Save long-term memories after a successful run.
-
-        Called once at the end of the graph.
-        """
-        records = self.summarizer.summarize_travel_run(state)
-        self.long_term.store_records(records)
-        self.save_trip_plan_from_state(state)
-        return self.short_term.mark_completed()
-
-    def save_trip_plan_from_state(self, state: dict[str, Any]) -> None:
-        """Store a full trip snapshot for later follow-up questions."""
-        user_id = state.get("user_id", "")
-        itinerary = state.get("itinerary", "")
-        if not user_id or not itinerary:
-            return
-
-        user_query = state.get("user_query", "")
-        destination = state.get("destination", "")
-        if not destination and user_query:
-            try:
-                from mcp_client import extract_destination
-
-                destination = extract_destination(user_query)
-            except Exception:
-                destination = ""
-
-        plan = {
-            "user_query": user_query,
-            "destination": destination,
-            "flight_results": state.get("flight_results", ""),
-            "hotel_results": state.get("hotel_results", ""),
-            "weather_results": state.get("weather_results", ""),
-            "itinerary": itinerary,
-            "llm_calls": state.get("llm_calls", 0),
-        }
-        self.long_term.save_trip_plan(user_id, plan)
-
-    def load_trip_plan(self, user_id: str) -> dict | None:
-        """Load the latest trip plan saved for this user."""
-        safe_user = self._sanitize_user_id(user_id)
-        return self.long_term.load_trip_plan(safe_user)
-
-    def format_memories_for_prompt(self, memories: list[RetrievedMemory]) -> str:
-        """Convert retrieved memories into plain text for LLM prompts."""
-        if not memories:
-            return "No prior memory found for this user."
-
-        lines = []
-        for item in memories:
-            lines.append(f"- [{item.record.memory_type.value}] {item.record.content}")
-        return "\n".join(lines)
-
-    def _sanitize_user_id(self, user_id: str) -> str:
-        """Make username safe for ids and SQL keys."""
-        clean = "".join(ch for ch in user_id.strip().lower() if ch.isalnum() or ch in {"_", "-"})
-        return clean or "anonymous"
+    def system_prompt_with_memory(self, base_prompt: str, memory_context: str) -> str:
+        """Inject known user information into an agent system prompt."""
+        if not memory_context or memory_context.startswith("No prior"):
+            return base_prompt
+        return f"{base_prompt.strip()}\n\n{memory_context}"

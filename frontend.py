@@ -9,13 +9,41 @@ Features:
 - Friendly agent pipeline UI with human-readable responses
 """
 
-import json
 import os
+import asyncio
+import warnings
+import logging
+
+# Reduce noisy third-party logs (TensorFlow, torch, LangChain deprecations).
+os.environ.setdefault("TF_CPP_MIN_LOG_LEVEL", "2")
+os.environ.setdefault("TF_ENABLE_ONEDNN_OPTS", "0")
+warnings.filterwarnings(
+    "ignore",
+    message=r".*HuggingFaceEmbeddings.*deprecated.*",
+    category=DeprecationWarning,
+)
+warnings.filterwarnings("ignore", message=r".*torch\.classes.*")
+logging.getLogger("nemoguardrails").setLevel(logging.WARNING)
+
+
+class _SuppressTorchClassesLog(logging.Filter):
+    def filter(self, record: logging.LogRecord) -> bool:
+        return "torch.classes" not in record.getMessage()
+
+
+logging.getLogger().addFilter(_SuppressTorchClassesLog())
+
+from observability import configure_langsmith
+
+configure_langsmith()
+
+import json
 import re
 from datetime import datetime
 
 import streamlit as st
 
+from agent_formatting import format_weather_markdown, parse_mcp_result, split_hotel_markdown
 from chat_router import (
     MessageIntent,
     build_clarify_reply,
@@ -24,6 +52,7 @@ from chat_router import (
     build_welcome_message,
     classify_message,
 )
+from guardrails.pipeline import check_input, check_output, guardrails_enabled
 from main import (
     answer_follow_up,
     app,
@@ -45,11 +74,18 @@ st.set_page_config(
 
 AGENTS = [
     {
-        "id": "flight_agent",
-        "icon": "✈️",
-        "title": "Flight Agent",
-        "subtitle": "Finds routes, airlines, and fares",
-        "field": "flight_results",
+        "id": "planner_agent",
+        "icon": "🧭",
+        "title": "Planner Agent",
+        "subtitle": "Creates your personalized trip outline",
+        "field": "planner_output",
+    },
+    {
+        "id": "research_agent",
+        "icon": "🔍",
+        "title": "Research Agent",
+        "subtitle": "Researches destination highlights",
+        "field": "research_output",
     },
     {
         "id": "hotel_agent",
@@ -59,14 +95,21 @@ AGENTS = [
         "field": "hotel_results",
     },
     {
-        "id": "weather_agent",
-        "icon": "🌤️",
-        "title": "Weather Agent",
-        "subtitle": "Checks weather and forecast",
-        "field": "weather_results",
+        "id": "flight_agent",
+        "icon": "✈️",
+        "title": "Flight Agent",
+        "subtitle": "Finds routes, airlines, and fares",
+        "field": "flight_results",
     },
     {
-        "id": "itinerary_agent",
+        "id": "activity_agent",
+        "icon": "🎯",
+        "title": "Activity Agent",
+        "subtitle": "Weather, activities, and experiences",
+        "field": "activity_results",
+    },
+    {
+        "id": "final_response_agent",
         "icon": "🗓️",
         "title": "Itinerary Agent",
         "subtitle": "Builds your day-by-day plan",
@@ -165,7 +208,67 @@ html, body, [class*="css"] { font-family: 'DM Sans', sans-serif; }
     margin-top: 0.2rem;
     line-height: 1.35;
 }
-</style>
+.weather-now-card {
+    background: rgba(59,130,246,0.12);
+    border: 1px solid rgba(59,130,246,0.28);
+    border-radius: 12px;
+    padding: 0.75rem 0.9rem;
+    margin-bottom: 0.55rem;
+}
+.weather-forecast-row {
+    display: flex;
+    justify-content: space-between;
+    gap: 0.75rem;
+    padding: 0.45rem 0;
+    border-bottom: 1px solid rgba(148,163,184,0.12);
+    font-size: 0.82rem;
+    color: #d7e6ff;
+}
+.weather-forecast-row:last-child { border-bottom: none; }
+.thinking-bubble {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+    padding: 0.65rem 0.9rem;
+    border-radius: 12px;
+    background: rgba(59,130,246,0.1);
+    border: 1px solid rgba(59,130,246,0.28);
+    color: #b9d4ff;
+    font-size: 0.88rem;
+    margin-bottom: 0.35rem;
+}
+.thinking-dots span {
+    display: inline-block;
+    width: 6px;
+    height: 6px;
+    margin: 0 2px;
+    border-radius: 50%;
+    background: #60a5fa;
+    animation: thinking-bounce 1.2s infinite ease-in-out;
+}
+.thinking-dots span:nth-child(2) { animation-delay: 0.15s; }
+.thinking-dots span:nth-child(3) { animation-delay: 0.3s; }
+@keyframes thinking-bounce {
+    0%, 80%, 100% { transform: translateY(0); opacity: 0.45; }
+    40% { transform: translateY(-5px); opacity: 1; }
+}
+.running-status {
+    display: flex;
+    align-items: center;
+    gap: 0.65rem;
+    padding: 0.8rem 1rem;
+    border-radius: 14px;
+    background: linear-gradient(90deg, rgba(59,130,246,0.16), rgba(16,185,129,0.08));
+    border: 1px solid rgba(59,130,246,0.35);
+    color: #dbeafe;
+    font-size: 0.9rem;
+    margin: 0.25rem 0 0.75rem 0;
+    animation: running-pulse 1.8s ease-in-out infinite;
+}
+@keyframes running-pulse {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(59,130,246,0.15); }
+    50% { box-shadow: 0 0 0 6px rgba(59,130,246,0.05); }
+}
         """,
         unsafe_allow_html=True,
     )
@@ -181,6 +284,8 @@ def init_session_state() -> None:
         "last_plan": None,
         "welcome_shown": False,
         "last_download": None,
+        "pending_query": None,
+        "processing_phase": None,
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -188,7 +293,7 @@ def init_session_state() -> None:
 
 
 def save_username(raw_username: str) -> None:
-    username = memory_manager._sanitize_user_id(raw_username)
+    username = memory_manager.sanitize_user_id(raw_username)
     if not username or username == "anonymous":
         st.warning("Please enter a valid username.")
         return
@@ -290,14 +395,26 @@ def _extract_hotel_picks(value) -> tuple[str, list[dict]]:
 
 
 def render_hotel_agent_ui(value) -> None:
-    """Compact hotel UI — cards for raw search, clean bullets for LLM summary."""
+    """Compact hotel UI — overview, pick cards, and booking tip."""
     text = str(value or "").strip()
     summary, picks = _extract_hotel_picks(value)
 
-    # LLM summary path (new default): short markdown from hotel_agent
-    if text and not picks and len(text) < 900 and not text.startswith("[{"):
-        st.markdown(text)
-        return
+    # Prefer structured markdown from hotel_agent LLM summary.
+    if text and not text.startswith("[{") and ("**" in text or text.startswith("-")):
+        overview, markdown_picks, tip = split_hotel_markdown(text)
+        if overview:
+            st.info(overview)
+        if markdown_picks:
+            st.caption(f"Top {len(markdown_picks)} stay option{'s' if len(markdown_picks) != 1 else ''}")
+            for index, pick in enumerate(markdown_picks, start=1):
+                with st.container(border=True):
+                    st.markdown(pick if pick.startswith("**") else f"**{index}.** {pick}")
+            if tip:
+                st.caption(f"💡 **Tip:** {tip}")
+            return
+        if not picks and len(text) < 900:
+            st.markdown(text)
+            return
 
     if summary:
         st.info(summary)
@@ -314,6 +431,32 @@ def render_hotel_agent_ui(value) -> None:
 
     st.caption("Hotel suggestions")
     st.markdown(_clean_snippet(text, 280) or "_No hotel details available._")
+
+
+def render_weather_agent_ui(value) -> None:
+    """Readable weather cards from formatted markdown or raw MCP payload."""
+    text = str(value or "").strip()
+
+    # Already formatted markdown from weather_agent.
+    if text.startswith("###") or "**Right now:**" in text:
+        st.markdown(text)
+        return
+
+    # Legacy raw MCP dump — parse and reformat.
+    if "Current Weather:" in text and "Forecast:" in text:
+        parts = text.split("Forecast:", 1)
+        weather_part = parts[0].replace("Current Weather:", "").strip()
+        forecast_part = parts[1].strip() if len(parts) > 1 else ""
+        text = format_weather_markdown(weather_part, forecast_part)
+        st.markdown(text)
+        return
+
+    parsed = parse_mcp_result(value)
+    if isinstance(parsed, dict):
+        st.markdown(format_weather_markdown(parsed, parsed))
+        return
+
+    st.markdown(_clean_snippet(text, 500) or "_No weather details available._")
 
 
 def format_agent_output(agent_id: str, value) -> str:
@@ -333,10 +476,19 @@ def format_agent_output(agent_id: str, value) -> str:
             return "\n".join(lines)
         return _clean_snippet(text, 280)
 
-    if agent_id == "weather_agent":
-        text = str(value)
-        text = re.sub(r"\n{3,}", "\n\n", text)
-        return text[:1400]
+    if agent_id in {"weather_agent", "activity_agent"}:
+        text = str(value).strip()
+        if text.startswith("###") or "**Right now:**" in text:
+            return text
+        if "Current Weather:" in text and "Forecast:" in text:
+            parts = text.split("Forecast:", 1)
+            weather_part = parts[0].replace("Current Weather:", "").strip()
+            forecast_part = parts[1].strip() if len(parts) > 1 else ""
+            return format_weather_markdown(weather_part, forecast_part)
+        parsed = parse_mcp_result(value)
+        if isinstance(parsed, dict):
+            return format_weather_markdown(parsed, parsed)
+        return _clean_snippet(text, 500)
 
     text = str(value).strip()
     return re.sub(r"\n{3,}", "\n\n", text)[:2200]
@@ -370,6 +522,8 @@ def render_agent_card_content(agent_id: str, value) -> None:
     """Render one agent result with agent-specific friendly formatting."""
     if agent_id == "hotel_agent":
         render_hotel_agent_ui(value)
+    elif agent_id in {"activity_agent", "weather_agent"}:
+        render_weather_agent_ui(value)
     else:
         st.markdown(format_agent_output(agent_id, value))
 
@@ -385,9 +539,22 @@ def render_agent_cards(collected: dict, expanded_agent: str | None = None) -> No
             render_agent_card_content(agent["id"], value)
 
 
-def run_travel_graph(user_query: str, username: str, thread_id: str) -> dict:
+def run_travel_graph(
+    user_query: str,
+    username: str,
+    thread_id: str,
+    thinking_slot=None,
+) -> dict:
     """Run full agent pipeline for a NEW trip planning request."""
-    config = build_run_config(user_id=username, session_id=thread_id)
+    if thinking_slot is not None:
+        thinking_slot.empty()
+
+    config = build_run_config(
+        user_id=username,
+        session_id=thread_id,
+        run_name="travel_planning",
+        tags=["streamlit", "trip-planning"],
+    )
     input_state = build_input_state(
         user_query=user_query,
         user_id=username,
@@ -408,7 +575,6 @@ def run_travel_graph(user_query: str, username: str, thread_id: str) -> dict:
         agent_states[AGENTS[0]["id"]] = "running"
 
     pipeline_slot = st.empty()
-    cards_slot = st.empty()
 
     with pipeline_slot.container():
         st.markdown("#### 🤖 Agents at work")
@@ -417,7 +583,7 @@ def run_travel_graph(user_query: str, username: str, thread_id: str) -> dict:
 
     for chunk in app.stream(input_state, config=config, stream_mode="updates"):
         for node_name, state_update in chunk.items():
-            if node_name in {"memory_load", "memory_save"}:
+            if node_name in {"retrieve_memory", "store_memory"}:
                 continue
 
             agent_meta = next((a for a in AGENTS if a["id"] == node_name), None)
@@ -428,6 +594,8 @@ def run_travel_graph(user_query: str, username: str, thread_id: str) -> dict:
                 agent_meta["field"], collected[agent_meta["field"]]
             )
             collected["llm_calls"] = state_update.get("llm_calls", collected["llm_calls"])
+            if state_update.get("destination"):
+                collected["destination"] = state_update["destination"]
             agent_states[node_name] = "done"
 
             for index, item in enumerate(AGENTS):
@@ -439,9 +607,6 @@ def run_travel_graph(user_query: str, username: str, thread_id: str) -> dict:
                 st.markdown("#### 🤖 Agents at work")
                 st.caption(f"Finished **{agent_meta['title']}** — moving to the next agent.")
                 render_agent_pipeline(agent_states)
-
-            with cards_slot.container():
-                render_agent_cards(collected, expanded_agent=node_name)
 
     return collected
 
@@ -471,6 +636,149 @@ def append_assistant_message(content: str, message_type: str = "text", agents: d
             "agents": agents,
         }
     )
+
+
+def render_thinking_indicator(label: str) -> None:
+    """Animated running indicator shown while a reply is generated."""
+    st.markdown(
+        f"""
+<div class="running-status">
+  <span class="thinking-dots"><span></span><span></span><span></span></span>
+  <span><strong>Running</strong> — {label}</span>
+</div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def process_pending_query(user_query: str, thinking_slot=None) -> dict:
+    """
+    Run guardrails, routing, and response generation for one user message.
+
+    Returns a dict with keys: content, message_type, agents (optional).
+    """
+    input_guard = check_input(user_query)
+    if input_guard.blocked:
+        return {
+            "content": input_guard.response,
+            "message_type": "guardrail_blocked",
+            "agents": None,
+        }
+
+    if not st.session_state.last_plan:
+        st.session_state.last_plan = load_user_plan(
+            st.session_state.saved_username,
+            st.session_state.thread_id,
+        )
+
+    has_plan = (
+        st.session_state.last_plan is not None
+        or user_has_stored_plan(
+            st.session_state.saved_username,
+            st.session_state.thread_id,
+        )
+    )
+    intent = classify_message(user_query, has_previous_plan=has_plan)
+
+    if intent == MessageIntent.GREETING:
+        reply = guard_assistant_reply(
+            user_query,
+            build_greeting_reply(st.session_state.saved_username),
+        )
+        return {"content": reply, "message_type": "greeting", "agents": None}
+
+    if intent == MessageIntent.FOLLOW_UP:
+        if not st.session_state.last_plan:
+            st.session_state.last_plan = load_user_plan(
+                st.session_state.saved_username,
+                st.session_state.thread_id,
+            )
+
+        if not st.session_state.last_plan:
+            reply = guard_assistant_reply(
+                user_query,
+                build_no_plan_reply(st.session_state.saved_username),
+            )
+            return {"content": reply, "message_type": "no_plan", "agents": None}
+
+        reply = guard_assistant_reply(
+            user_query,
+            answer_follow_up(
+                user_query=user_query,
+                username=st.session_state.saved_username,
+                chat_history=st.session_state.chat_messages,
+                last_plan=st.session_state.last_plan,
+                session_id=st.session_state.thread_id,
+            ),
+        )
+        return {"content": reply, "message_type": "follow_up", "agents": None}
+
+    if intent == MessageIntent.CLARIFY:
+        reply = guard_assistant_reply(
+            user_query,
+            build_clarify_reply(st.session_state.saved_username),
+        )
+        return {"content": reply, "message_type": "clarify", "agents": None}
+
+    collected = run_travel_graph(
+        user_query=user_query,
+        username=st.session_state.saved_username,
+        thread_id=st.session_state.thread_id,
+        thinking_slot=thinking_slot,
+    )
+
+    summary = build_human_summary(collected, user_query)
+    itinerary = collected.get("itinerary", "I could not build an itinerary.")
+    full_reply = f"{summary}\n\n---\n\n### 🗓️ Your itinerary\n\n{itinerary}"
+    full_reply = guard_assistant_reply(user_query, full_reply)
+
+    st.session_state.last_plan = collected
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    filename = f"travel_plan_{st.session_state.saved_username}_{timestamp}.md"
+    save_dir = os.path.join(os.path.dirname(__file__), "travel_plans")
+    os.makedirs(save_dir, exist_ok=True)
+    file_content = (
+        f"# Travel Plan\n\n"
+        f"**User:** {st.session_state.saved_username}\n\n"
+        f"**Query:** {user_query}\n\n"
+        f"## Itinerary\n{itinerary}\n"
+    )
+    with open(os.path.join(save_dir, filename), "w", encoding="utf-8") as file:
+        file.write(file_content)
+    st.session_state.last_download = {
+        "filename": filename,
+        "content": file_content,
+    }
+
+    return {"content": full_reply, "message_type": "plan", "agents": collected}
+
+
+def thinking_label_for_query(user_query: str) -> str:
+    """Pick a user-friendly thinking message before routing completes."""
+    preview = classify_message(
+        user_query,
+        has_previous_plan=bool(
+            st.session_state.last_plan
+            or user_has_stored_plan(
+                st.session_state.saved_username,
+                st.session_state.thread_id,
+            )
+        ),
+    )
+    labels = {
+        MessageIntent.GREETING: "Voyager AI is preparing a welcome reply…",
+        MessageIntent.FOLLOW_UP: "Voyager AI is recalling your trip and thinking…",
+        MessageIntent.CLARIFY: "Voyager AI is thinking about how to help…",
+        MessageIntent.NEW_PLAN: "Voyager AI is coordinating specialist agents…",
+    }
+    return labels.get(preview, "Voyager AI is thinking…")
+
+
+def guard_assistant_reply(user_query: str, reply: str) -> str:
+    """Run output guardrails on assistant text before display."""
+    output_result = check_output(user_query, reply)
+    return output_result.response
 
 
 inject_styles()
@@ -503,6 +811,8 @@ with st.sidebar:
             st.session_state.last_plan = None
             st.session_state.welcome_shown = False
             st.session_state.last_download = None
+            st.session_state.pending_query = None
+            st.session_state.processing_phase = None
             st.rerun()
 
     if st.session_state.chat_started:
@@ -532,6 +842,27 @@ with st.sidebar:
     st.markdown("1. Ask for a **new trip** → all agents run")
     st.markdown("2. Ask **follow-ups** → answered from your saved plan")
     st.markdown("3. Switch user → each user keeps their own plan in Neon")
+    st.divider()
+    if guardrails_enabled():
+        st.markdown("**🛡️ Guardrails:** enabled (NeMo + Groq)")
+        st.caption("Input/output safety checks run before agents and before replies.")
+    else:
+        st.caption("Guardrails disabled (set GUARDRAILS_ENABLED=true in .env)")
+    st.divider()
+    if memory_manager.config.mem0_enabled:
+        st.markdown("**🧠 Long-term memory:** Mem0 enabled")
+        st.caption(f"Retrieves top {memory_manager.config.memory_top_k} user preferences per trip.")
+    else:
+        st.caption("Mem0 off — add MEM0_API_KEY to .env for cross-session memory")
+    st.divider()
+    from observability import get_langsmith_status
+
+    ls_status = get_langsmith_status()
+    if ls_status.get("enabled"):
+        st.markdown("**📊 LangSmith:** enabled")
+        st.caption(f"Project: `{ls_status.get('project', 'default')}` — traces at smith.langchain.com")
+    else:
+        st.caption("LangSmith tracing off (set LANGSMITH_TRACING=true in .env)")
 
 # ---------------- Main ----------------
 st.markdown(
@@ -569,96 +900,85 @@ for col, prompt in zip(chip_cols, QUICK_PROMPTS):
         if st.button(prompt, key=f"chip_{prompt}", use_container_width=True):
             st.session_state.pending_prompt = prompt
 
-user_query = st.chat_input("Plan a new trip, or ask about your current plan...")
+if st.session_state.get("pending_query"):
+    st.info("🔄 Voyager AI is running — you'll see the response when agents finish.")
+
+user_query = st.chat_input(
+    "Plan a new trip, or ask about your current plan...",
+    disabled=bool(st.session_state.get("pending_query")),
+)
 user_query = user_query or st.session_state.pop("pending_prompt", None)
 
+# Step 1: user just sent a message — show it immediately on next paint.
 if user_query:
-    if not st.session_state.last_plan:
-        st.session_state.last_plan = load_user_plan(
-            st.session_state.saved_username,
-            st.session_state.thread_id,
-        )
-
-    has_plan = (
-        st.session_state.last_plan is not None
-        or user_has_stored_plan(
-            st.session_state.saved_username,
-            st.session_state.thread_id,
-        )
-    )
-    intent = classify_message(user_query, has_previous_plan=has_plan)
-
     st.session_state.chat_messages.append({"role": "user", "content": user_query})
+    st.session_state.pending_query = user_query
+    st.session_state.processing_phase = "thinking"
+    st.rerun()
 
-    if intent == MessageIntent.GREETING:
-        reply = build_greeting_reply(st.session_state.saved_username)
-        append_assistant_message(reply, message_type="greeting")
+# Step 2: paint running UI first (fast rerun), then do heavy work on next rerun.
+if st.session_state.get("pending_query") and st.session_state.get("processing_phase") == "thinking":
+    active_query = st.session_state.pending_query
+    with st.chat_message("assistant", avatar="✈️"):
+        render_thinking_indicator(thinking_label_for_query(active_query))
+        st.caption("Please wait — Voyager AI is working on your request.")
+    st.session_state.processing_phase = "running"
+    st.rerun()
 
-    elif intent == MessageIntent.FOLLOW_UP:
-        if not st.session_state.last_plan:
-            st.session_state.last_plan = load_user_plan(
-                st.session_state.saved_username,
-                st.session_state.thread_id,
-            )
+# Step 3: run agents / LLM while keeping running status visible.
+if st.session_state.get("pending_query") and st.session_state.get("processing_phase") == "running":
+    active_query = st.session_state.pending_query
+    thinking_label = thinking_label_for_query(active_query)
 
-        if not st.session_state.last_plan:
-            reply = build_no_plan_reply(st.session_state.saved_username)
-            append_assistant_message(reply, message_type="no_plan")
-        else:
-            reply = answer_follow_up(
-                user_query=user_query,
-                username=st.session_state.saved_username,
-                chat_history=st.session_state.chat_messages,
-                last_plan=st.session_state.last_plan,
-                session_id=st.session_state.thread_id,
-            )
-            append_assistant_message(reply, message_type="follow_up")
+    with st.chat_message("assistant", avatar="✈️"):
+        with st.status("🔄 Voyager AI is running…", expanded=True) as run_status:
+            st.caption(thinking_label)
+            thinking_slot = st.empty()
+            with thinking_slot.container():
+                render_thinking_indicator(thinking_label)
 
-    elif intent == MessageIntent.CLARIFY:
-        reply = build_clarify_reply(st.session_state.saved_username)
-        append_assistant_message(reply, message_type="clarify")
+            try:
+                result = process_pending_query(active_query, thinking_slot=thinking_slot)
+            except Exception as exc:
+                import traceback
+                logging.exception("Trip planning failed")
+                detail = str(exc).strip() or type(exc).__name__
+                result = {
+                    "content": f"Something went wrong while planning your trip: {detail}",
+                    "message_type": "error",
+                    "agents": None,
+                }
 
-    else:
-        collected = run_travel_graph(
-                user_query=user_query,
-                username=st.session_state.saved_username,
-                thread_id=st.session_state.thread_id,
-        )
+            thinking_slot.empty()
+            run_status.update(label="✅ Response ready", state="complete", expanded=False)
+            st.markdown(result["content"])
+            if result.get("message_type") == "follow_up":
+                st.markdown(
+                    '<span class="follow-up-badge">Answered from memory</span>',
+                    unsafe_allow_html=True,
+                )
+            if result.get("message_type") == "no_plan":
+                st.markdown(
+                    '<span class="follow-up-badge">No plan yet — quick reply</span>',
+                    unsafe_allow_html=True,
+                )
+            if result.get("message_type") == "guardrail_blocked":
+                st.markdown(
+                    '<span class="follow-up-badge">Blocked by safety guardrails</span>',
+                    unsafe_allow_html=True,
+                )
 
-        summary = build_human_summary(collected, user_query)
-        itinerary = collected.get("itinerary", "I could not build an itinerary.")
-        full_reply = f"{summary}\n\n---\n\n### 🗓️ Your itinerary\n\n{itinerary}"
+        # Agent cards use st.status (expander-like) — must render outside the run status block.
+        if result.get("agents"):
+            st.markdown("---")
+            st.caption("Agent details")
+            render_agent_cards(result["agents"])
 
-        st.session_state.last_plan = collected
-        memory_manager.save_trip_plan_from_state(
-            {
-                "user_id": st.session_state.saved_username,
-                "user_query": user_query,
-                "destination": collected.get("destination", ""),
-                "flight_results": collected.get("flight_results", ""),
-                "hotel_results": collected.get("hotel_results", ""),
-                "weather_results": collected.get("weather_results", ""),
-                "itinerary": itinerary,
-                "llm_calls": collected.get("llm_calls", 0),
-            }
-        )
-        append_assistant_message(full_reply, message_type="plan", agents=collected)
-
-        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        filename = f"travel_plan_{st.session_state.saved_username}_{timestamp}.md"
-        save_dir = os.path.join(os.path.dirname(__file__), "travel_plans")
-        os.makedirs(save_dir, exist_ok=True)
-        file_content = (
-            f"# Travel Plan\n\n"
-            f"**User:** {st.session_state.saved_username}\n\n"
-            f"**Query:** {user_query}\n\n"
-            f"## Itinerary\n{itinerary}\n"
-        )
-        with open(os.path.join(save_dir, filename), "w", encoding="utf-8") as file:
-            file.write(file_content)
-        st.session_state.last_download = {
-            "filename": filename,
-            "content": file_content,
-        }
-
+    append_assistant_message(
+        result["content"],
+        message_type=result.get("message_type", "text"),
+        agents=result.get("agents"),
+    )
+    st.session_state.pending_query = None
+    st.session_state.processing_phase = None
     st.rerun()

@@ -1,0 +1,38 @@
+[
+  {
+    "id": "checkpoint_followup_paris",
+    "type": "checkpoint_followup",
+    "turn1_input": "Plan a 5-day trip to Paris with hotels near the Eiffel Tower.",
+    "turn2_input": "Where am I going on this trip?",
+    "expected_outcome": "The assistant should state Paris as the destination based on the prior plan.",
+    "retrieval_context_hints": ["Paris", "Eiffel Tower"]
+  },
+  {
+    "id": "followup_hotels",
+    "type": "checkpoint_followup",
+    "turn1_input": "Plan 3 days in Rome with hotel recommendations.",
+    "turn2_input": "Which hotels did you recommend?",
+    "expected_outcome": "The assistant should reference hotel suggestions from the Rome plan.",
+    "retrieval_context_hints": ["Rome", "hotel"]
+  },
+  {
+    "id": "mem0_vegetarian_pref",
+    "type": "memory_session",
+    "session1_input": "I am vegetarian. Plan a 3-day trip to Tokyo.",
+    "session2_input": "Now plan 4 days in Bali for next month.",
+    "expected_outcome": "The Bali plan should respect the vegetarian preference without re-asking.",
+    "retrieval_context_hints": ["vegetarian", "Bali"],
+    "mem0_wait_seconds": 15
+  },
+  {
+    "id": "greeting_then_plan",
+    "type": "multi_turn_chat",
+    "turns": [
+      { "role": "user", "content": "Hi, I need help planning travel." },
+      { "role": "assistant", "content": "Hello! Tell me your destination, days, and budget." },
+      { "role": "user", "content": "Plan 5 days in Singapore with flights and hotels." }
+    ],
+    "expected_outcome": "The conversation should progress toward a Singapore travel plan.",
+    "note": "Synthetic turn sequence for Goal Accuracy — assistant replies filled at runtime for turn 3"
+  }
+]
