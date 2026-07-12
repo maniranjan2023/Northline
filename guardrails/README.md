@@ -2,9 +2,45 @@
 
 Safety layer for the travel chat app, adapted from `nemo-guardrails-demo/`.
 
-![Guardrails flow](../docs/diagrams/svg/voyager-guardrails.svg)
+## Overview
 
-*Diagram source: [`docs/diagrams/archify/voyager-guardrails.sequence.json`](../docs/diagrams/archify/voyager-guardrails.sequence.json)*
+Every user message passes through a **layered input check** before the chat router or LangGraph runs. Agent replies pass through an **output check** before the user sees them. If input is blocked, agents are never called.
+
+| Layer | Type | Catches |
+|-------|------|---------|
+| 1 | Regex fast-path | Jailbreak, prompt injection, toxic language |
+| 2 | PII action | Email, phone, credit card, API keys |
+| 3 | Colang flows | Semantic unsafe / off-topic intent |
+| 4 | Groq 8B self-check | Final allow/block verdict |
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as Streamlit
+    participant Guard as guardrails/pipeline.py
+    participant Router as chat_router
+    participant Graph as LangGraph
+    participant LLM as Groq LLM
+
+    User->>UI: message
+    UI->>Guard: check_input()
+    alt blocked
+        Guard-->>UI: safe refusal
+        UI-->>User: blocked reply
+    else allowed
+        Guard->>Router: classify intent
+        alt new plan
+            Router->>Graph: run agents
+            Graph-->>UI: agent reply
+        else greeting / follow-up
+            Router->>LLM: lightweight reply
+            LLM-->>UI: reply
+        end
+        UI->>Guard: check_output()
+        Guard-->>UI: sanitized reply
+        UI-->>User: final reply
+    end
+```
 
 ## What it does
 

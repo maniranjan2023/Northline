@@ -8,9 +8,34 @@ Interview-ready eval suite for the LangGraph travel planner. Measures **safety**
 
 > "Voyager runs 6 agents and 3 MCP tools. A single bad release can leak PII, route a greeting into a full graph run, or forget a user's vegetarian preference. We run **13 evals** in three schedules: **CI on every PR** (guardrails + router, ~2 min), **nightly** (5 DeepEval agent metrics on real trip planning), and **weekly** (5 DeepEval conversation metrics on follow-ups and Mem0). Results append to Markdown logs so we can debug without a dashboard during development."
 
-![Evaluation flow](../docs/diagrams/svg/voyager-evals.svg)
+## Eval pipeline
 
-*Diagram source: [`docs/diagrams/archify/voyager-evals.workflow.json`](../docs/diagrams/archify/voyager-evals.workflow.json)*
+| Suite | When | What it measures | Judge | Output |
+|-------|------|------------------|-------|--------|
+| **CI** (`test_ci.py`) | Every PR | Guardrails, injection block, router intent | None (deterministic) | `results/custom.md` |
+| **Nightly** (`test_nightly.py`) | Daily | Single-turn agent quality (5 DeepEval metrics) | GroqJudge | `results/single_turn.md` |
+| **Memory** (`test_memory.py`) | Weekly | Multi-turn memory (5 DeepEval metrics) | GroqJudge | `results/multi_turn.md` |
+
+```mermaid
+flowchart TD
+    subgraph CI["Suite 1 — CI (no live APIs)"]
+        C1[Guardrail alignment]
+        C2[Prompt injection block]
+        C3[Router intent]
+    end
+
+    subgraph Live["Suites 2 & 3 — EVAL_LIVE=1"]
+        G[graph_runner.py<br/>invoke LangGraph]
+        J[GroqJudge<br/>llama-3.3-70b]
+    end
+
+    CLI[pytest / deepeval CLI] --> CI
+    CLI --> Live
+    G --> J
+    CI --> MD1[(custom.md)]
+    J --> MD2[(single_turn.md)]
+    J --> MD3[(multi_turn.md)]
+```
 
 ---
 

@@ -18,9 +18,33 @@ When tracing is on, each trip-planning run sends a trace to LangSmith showing:
 - Metadata: `user_id`, `thread_id`, `app=voyager-ai`
 - Tags: `voyager-ai`, `langgraph`, `user:<username>`, `streamlit`, `trip-planning`
 
-![Observability flow](../diagrams/svg/voyager-observability.svg)
+## Trace flow
 
-*Diagram source: [`diagrams/archify/voyager-observability.sequence.json`](diagrams/archify/voyager-observability.sequence.json)*
+| Step | File | What happens |
+|------|------|--------------|
+| 1 | `observability.py` | Reads `.env`, sets `LANGSMITH_*` env vars at startup |
+| 2 | `main.py` | `build_run_config()` attaches `metadata` + `tags` to each run |
+| 3 | `frontend.py` | Shows LangSmith status in sidebar |
+| 4 | LangGraph | Auto-emits spans for each node and nested LLM call |
+| 5 | LangSmith UI | Filter by project, user tag, or thread_id |
+
+```mermaid
+sequenceDiagram
+    participant UI as Streamlit (frontend.py)
+    participant Obs as observability.py
+    participant App as main.py
+    participant Graph as LangGraph
+    participant LS as LangSmith
+
+    Note over Obs: configure_langsmith() on import
+    UI->>App: run_travel_graph(state, config)
+    App->>Graph: app.stream() + metadata/tags
+    loop each agent node
+        Graph->>LS: span (e.g. flight_agent)
+        Graph->>LS: nested ChatGroq span
+    end
+    Graph-->>UI: final itinerary
+```
 
 Implementation files:
 

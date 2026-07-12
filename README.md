@@ -45,12 +45,16 @@ In simple terms:
 
 ## High-Level Architecture
 
-![Voyager AI — System Architecture](docs/diagrams/svg/voyager-system.svg)
+Voyager AI is organized in **four layers**. Each layer has a single responsibility; data flows left-to-right from the user through safety checks, orchestration, tools, and persistence.
 
-*Diagram source: [`docs/diagrams/archify/voyager-system.architecture.json`](docs/diagrams/archify/voyager-system.architecture.json) · [Regenerate](docs/diagrams/README.md)*
-
-<details>
-<summary>Mermaid view (alternative)</summary>
+| Layer | Components | Responsibility |
+|-------|------------|----------------|
+| **UI** | Streamlit (`frontend.py`), message router | Collect user input, classify intent, render replies |
+| **Safety** | NeMo Guardrails (`guardrails/pipeline.py`) | Block unsafe input/output before agents run |
+| **Orchestration** | LangGraph (`graph/builder.py`) | Run 6 specialist agents in sequence |
+| **Tools** | MCP clients (`mcp_client.py`) | Tavily, AviationStack, Weather APIs |
+| **Memory** | PostgresSaver + Mem0 | Session state (`thread_id`) + user prefs (`user_id`) |
+| **Observability** | LangSmith (`observability.py`) | Trace every graph node and LLM call |
 
 ```mermaid
 flowchart TB
@@ -107,7 +111,11 @@ flowchart TB
     FollowUp --> LT
 ```
 
-</details>
+**Key annotations:**
+- **Router** decides whether to greet, answer a follow-up, or run the full graph — saving cost on simple messages.
+- **`retrieve_memory` / `store_memory`** bookend the graph: Mem0 context in at start, durable facts saved at end.
+- **PostgresSaver** checkpoints the full `TravelState` after every node — no manual save code.
+- **MCP tools** are called only by the agents that need them (research/hotel → Tavily, flight → AviationStack, activity → Weather).
 
 ---
 
@@ -186,12 +194,17 @@ A dedicated `memory/` module with `MemoryManager` as the single entry point. Age
 
 ## User Flow
 
-![Voyager AI — User Flow](docs/diagrams/svg/voyager-user-flow.svg)
+A typical session follows this path. The router is the gatekeeper: only **new plan** messages trigger the expensive 6-agent pipeline.
 
-*Diagram source: [`docs/diagrams/archify/voyager-user-flow.workflow.json`](docs/diagrams/archify/voyager-user-flow.workflow.json)*
-
-<details>
-<summary>Mermaid view (alternative)</summary>
+| Step | What happens | Agents run? |
+|------|----------------|-------------|
+| 1 | User enters username → session keys set (`user_id`, `thread_id`) | No |
+| 2 | User sends a message → **guardrails** check input | No |
+| 3 | **Router** classifies intent (greeting / follow-up / new plan / clarify) | No |
+| 4a | Greeting or clarify → short reply, loop back to chat | No |
+| 4b | Follow-up → load plan from PostgresSaver → single LLM answer | No |
+| 4c | New plan → Mem0 retrieve → 6 agents → Mem0 store → show itinerary | **Yes** |
+| 5 | PostgresSaver auto-checkpoints after every graph node | — |
 
 ```mermaid
 flowchart TD
@@ -226,7 +239,7 @@ flowchart TD
     P --> D
 ```
 
-</details>
+---
 
 ### Example user journey
 
@@ -241,16 +254,39 @@ flowchart TD
 
 ## Memory System
 
-![Voyager AI — Memory Flow](docs/diagrams/svg/voyager-memory.svg)
-
-*Diagram source: [`docs/diagrams/archify/voyager-memory.dataflow.json`](docs/diagrams/archify/voyager-memory.dataflow.json) · Full guide: [`memory/README.md`](memory/README.md)*
-
 Voyager AI uses **two separate memory systems** with different keys, lifetimes, and purposes. They are **not mixed** — each has a clear job.
 
 | Tier | Technology | Key | Scope | Analogy |
 |------|------------|-----|-------|---------|
 | **Short-term** | LangGraph `PostgresSaver` on Neon | `thread_id` | One chat session | Working memory — *what we're doing right now* |
 | **Long-term** | [Mem0](https://docs.mem0.ai/integrations/langgraph) Platform | `user_id` | All sessions forever | User profile — *who this person is* |
+
+```mermaid
+flowchart TB
+    subgraph LT["Long-term — Mem0 (key: user_id)"]
+        RM[retrieve_memory<br/>search past preferences]
+        SM[store_memory<br/>extract + save facts]
+    end
+
+    subgraph Graph["LangGraph pipeline (key: thread_id)"]
+        P[planner] --> R[research] --> H[hotel]
+        H --> F[flight] --> A[activity] --> I[itinerary]
+    end
+
+    subgraph ST["Short-term — PostgresSaver"]
+        CP[auto-checkpoint<br/>after every node]
+    end
+
+    RM -->|memory_context| P
+    I --> SM
+    Graph --> CP
+```
+
+**Flow annotations:**
+- **Read (start):** `retrieve_memory` queries Mem0 with `user_id` + latest message → fills `memory_context` in state.
+- **Write (end):** `store_memory` uses an LLM to extract durable facts (diet, budget, style) → saves to Mem0.
+- **Checkpoint (continuous):** PostgresSaver persists the full graph state after each agent — used for follow-ups and session restore.
+- **Follow-ups** read from PostgresSaver only (fast path); Mem0 is optional extra context.
 
 ```
 One user  →  many conversations
@@ -300,7 +336,38 @@ PostgresSaver checkpoints the full state after each step automatically.
 
 NeMo Guardrails run **before** the message router (input) and **after** agent replies (output). Blocked messages never reach LangGraph.
 
-![Voyager AI — Guardrails Flow](docs/diagrams/svg/voyager-guardrails.svg)
+| Check layer | What it catches | Implementation |
+|-------------|-----------------|----------------|
+| 1. Regex fast-path | Jailbreak, injection, toxic patterns | `guardrails/pipeline.py` |
+| 2. PII detection | Email, phone, credit card, API keys | NeMo `actions.py` |
+| 3. Colang flows | Semantic unsafe intent | `guardrails/config/rails.co` |
+| 4. LLM self-check | Final yes/no safety verdict | Groq 8B (`GUARDRAIL_MODEL`) |
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant UI as Streamlit
+    participant Guard as Guardrails
+    participant Router as chat_router
+    participant Graph as LangGraph
+
+    User->>UI: message
+    UI->>Guard: check_input()
+    alt blocked
+        Guard-->>UI: safe refusal
+        UI-->>User: blocked (agents NOT called)
+    else allowed
+        Guard->>Router: classify intent
+        alt new plan
+            Router->>Graph: run 6 agents
+        else follow-up / greeting
+            Router->>UI: lightweight reply
+        end
+        UI->>Guard: check_output()
+        Guard-->>UI: sanitized reply
+        UI-->>User: final reply
+    end
+```
 
 *Full guide: [`guardrails/README.md`](guardrails/README.md)*
 
@@ -310,7 +377,30 @@ NeMo Guardrails run **before** the message router (input) and **after** agent re
 
 Every trip-planning run is traced in LangSmith with graph nodes, LLM calls, metadata (`user_id`, `thread_id`), and tags.
 
-![Voyager AI — Observability Flow](docs/diagrams/svg/voyager-observability.svg)
+| What is traced | Where configured | Visible in LangSmith as |
+|----------------|------------------|-------------------------|
+| Top-level graph run | `main.py` → `build_run_config()` | `travel_planning` trace |
+| Each agent node | LangGraph auto-tracing | Nested spans per node |
+| Groq LLM calls | LangChain callback (env vars) | `ChatGroq` child spans |
+| User/session context | `metadata` + `tags` | `user:<name>`, `thread_id` filters |
+
+```mermaid
+sequenceDiagram
+    participant UI as Streamlit
+    participant Obs as observability.py
+    participant App as main.py
+    participant Graph as LangGraph
+    participant LS as LangSmith
+
+    Note over Obs: configure_langsmith() at startup
+    UI->>App: run_travel_graph(state, config)
+    App->>Graph: app.stream() with metadata/tags
+    loop each graph node
+        Graph->>LS: span (planner, research, hotel, ...)
+        Graph->>LS: nested ChatGroq LLM spans
+    end
+    Graph-->>UI: itinerary + agent outputs
+```
 
 *Full guide: [`docs/LANGSMITH.md`](docs/LANGSMITH.md)*
 
@@ -727,15 +817,26 @@ What can you do?
 
 Voyager AI ships **13 eval metrics** in three suites (CI / nightly / memory). Results append to Markdown logs under `evals/results/`.
 
-![Voyager AI — Evaluation Flow](docs/diagrams/svg/voyager-evals.svg)
+| Suite | Metrics | Command | Schedule | Results file |
+|-------|---------|---------|----------|--------------|
+| **CI** | Guardrail alignment, prompt injection, router intent | `pytest evals/test_ci.py -v` | Every PR | `custom.md` |
+| **Nightly** | Task completion, tool correctness, plan adherence, plan quality, argument correctness | `EVAL_LIVE=1 deepeval test run evals/test_nightly.py` | Daily | `single_turn.md` |
+| **Memory** | Knowledge retention, turn relevancy, faithfulness, contextual recall, goal accuracy | `EVAL_LIVE=1 deepeval test run evals/test_memory.py` | Weekly | `multi_turn.md` |
 
-*Diagram source: [`docs/diagrams/archify/voyager-evals.workflow.json`](docs/diagrams/archify/voyager-evals.workflow.json)*
+```mermaid
+flowchart LR
+    CLI[Developer CLI] --> CI[test_ci.py<br/>3 custom checks]
+    CLI --> Nightly[test_nightly.py<br/>5 DeepEval metrics]
+    CLI --> Memory[test_memory.py<br/>5 multi-turn metrics]
 
-| Suite | Command | Schedule |
-|-------|---------|----------|
-| Custom (3) | `pytest evals/test_ci.py -v` | Every PR |
-| Single-turn (5) | `EVAL_LIVE=1 deepeval test run evals/test_nightly.py --verbose` | Daily |
-| Multi-turn (5) | `EVAL_LIVE=1 deepeval test run evals/test_memory.py --verbose` | Weekly |
+    CI --> R1[(custom.md)]
+    Nightly --> Judge[GroqJudge<br/>llama-3.3-70b]
+    Memory --> Judge
+    Judge --> R2[(single_turn.md)]
+    Judge --> R3[(multi_turn.md)]
+```
+
+**How it works:** CI evals are deterministic (no API cost). Nightly and memory suites invoke the real LangGraph pipeline with `EVAL_LIVE=1`, score outputs with DeepEval + Groq judge, and append pass/fail rows to the results Markdown files.
 
 **Full guide (why / what / how, interview Q&A):** [`evals/README.md`](evals/README.md)
 

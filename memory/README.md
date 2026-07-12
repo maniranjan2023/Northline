@@ -25,11 +25,36 @@ We deliberately **do not mix** their responsibilities.
 
 ---
 
-## Memory flow diagram
+## Memory architecture
 
-![Memory flow](../docs/diagrams/svg/voyager-memory.svg)
+Two tiers, two keys, two lifetimes — never mixed.
 
-*Diagram source: [`docs/diagrams/archify/voyager-memory.dataflow.json`](../docs/diagrams/archify/voyager-memory.dataflow.json) · [Regenerate](../docs/diagrams/README.md)*
+| | Short-term (PostgresSaver) | Long-term (Mem0) |
+|---|---------------------------|------------------|
+| **Key** | `thread_id` | `user_id` |
+| **Stores** | Full trip state, agent outputs, itinerary | Durable preferences only |
+| **Read when** | Follow-ups, session restore | Start of every new trip (`retrieve_memory`) |
+| **Write when** | After every graph node (automatic) | End of every new trip (`store_memory`) |
+
+```mermaid
+flowchart TB
+    subgraph LT["Long-term — Mem0"]
+        RM[retrieve_memory]
+        SM[store_memory]
+    end
+
+    subgraph Graph["LangGraph agents"]
+        A[planner → research → hotel → flight → activity → itinerary]
+    end
+
+    subgraph ST["Short-term — PostgresSaver"]
+        CP[checkpoint after each node]
+    end
+
+    RM -->|memory_context| A
+    A --> SM
+    Graph --> CP
+```
 
 ---
 
