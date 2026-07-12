@@ -1,8 +1,23 @@
 # Voyager AI — Multi-Agent Travel Planning with LangGraph + MCP + Memory
 
-**Voyager AI** is an intelligent travel planning application that uses **multiple specialist AI agents** connected to **real-world tools** through the **Model Context Protocol (MCP)**. Users chat in a friendly Streamlit UI, and the system plans trips by calling flight, hotel, weather, and research services — then builds a full itinerary. The app uses a **two-tier memory architecture**: **short-term session memory** via LangGraph + Neon PostgreSQL, and **long-term user memory** via **Mem0**.
+**Voyager AI** is a production-style AI travel planner: **6 specialist LangGraph agents** call **real-world tools** via **MCP** (Tavily, AviationStack, Weather), personalize trips with **dual-layer memory** (Postgres + Mem0), enforce **NeMo Guardrails** on every message, trace runs in **LangSmith**, and validate quality with **13 DeepEval metrics** across CI, nightly, and weekly suites.
 
-> **Memory deep-dive:** See [`memory/README.md`](memory/README.md) for interview-ready explanation of short-term vs long-term (Mem0) flows.
+> **One-line pitch for recruiters:** *Multi-agent LangGraph app with MCP tools, two-tier memory, input/output guardrails, LangSmith tracing, and a 13-metric eval framework — not just a chatbot demo.*
+
+---
+
+## At a Glance — What Makes This Project Stand Out
+
+| Pillar | Technology | What it does | Deep-dive |
+|--------|------------|--------------|-----------|
+| **Multi-agent planning** | LangGraph + Groq | 6 sequential agents (planner → research → hotel → flight → activity → itinerary) orchestrated as a `StateGraph` | [Agent pipeline](#langgraph-agent-pipeline) |
+| **Tool integration (MCP)** | Tavily, AviationStack, custom Weather | Agents call live APIs through remote HTTP + local stdio MCP servers | [MCP integration](#mcp-integration-remote-local-custom) |
+| **Memory** | PostgresSaver + Mem0 | **Short-term:** full trip state per session (`thread_id`). **Long-term:** user preferences across sessions (`user_id`) | [`memory/README.md`](memory/README.md) |
+| **Safety (Guardrails)** | NeMo + Groq 8B | Regex, PII detection, Colang flows, and LLM self-check on **input and output** — blocked messages never hit agents | [`guardrails/README.md`](guardrails/README.md) |
+| **Observability** | LangSmith | Every graph node, LLM call, `user_id`, and `thread_id` traced for debugging and demos | [`docs/LANGSMITH.md`](docs/LANGSMITH.md) |
+| **Evaluations** | DeepEval + pytest | **13 metrics** in 3 suites: CI (safety/router), nightly (agent quality), weekly (multi-turn memory) | [`evals/README.md`](evals/README.md) |
+
+**End-to-end flow in one sentence:** User chats in Streamlit → guardrails check input → router picks greeting / follow-up / new plan → (if new plan) Mem0 loads prefs → 6 agents + MCP tools run → Mem0 saves prefs → Postgres checkpoints state → guardrails sanitize output → LangSmith records the trace → evals verify nothing regressed.
 
 ---
 
@@ -24,6 +39,7 @@
 14. [Example Prompts](#example-prompts)
 15. [Evaluations](#evaluations)
 16. [Troubleshooting](#troubleshooting)
+17. [Interview Quick Reference](#interview-quick-reference)
 
 ---
 
@@ -32,14 +48,25 @@
 In simple terms:
 
 1. You enter a **username** and describe a trip (e.g. *"Plan a 7-day Japan trip under ₹2L"*).
-2. The app runs **6 specialist agents** one by one: Planner → Research → Hotels → Flights → Activities → Itinerary.
-3. Each agent calls **MCP tools** (search APIs, aviation data, weather APIs) to get real information.
-4. The final agent combines everything into a **day-by-day travel plan**.
-5. **Short-term memory** (PostgresSaver) saves the full trip state for this chat session.
-6. **Long-term memory** (Mem0) saves durable user preferences (vegetarian, budget, etc.) across all sessions.
-7. Follow-ups like *"Where did I plan to go?"* are answered instantly **without re-running all agents**.
+2. **Guardrails** screen the message for injection, PII, and unsafe content — only safe travel queries proceed.
+3. The **message router** classifies intent: greeting, follow-up, new plan, or clarify — avoiding unnecessary agent runs.
+4. For a **new plan**, the app runs **6 specialist agents** one by one: Planner → Research → Hotels → Flights → Activities → Itinerary.
+5. Each agent calls **MCP tools** (Tavily search, AviationStack flights, Weather API) for real data.
+6. **Mem0** injects past preferences (vegetarian, budget, direct flights) at graph start and saves new facts at graph end.
+7. **PostgresSaver** checkpoints the full trip state after every node — follow-ups work without re-planning.
+8. The final agent builds a **day-by-day itinerary**; **LangSmith** traces the full run for debugging.
+9. **Evals** (13 metrics) continuously verify guardrails, agent quality, and multi-turn memory.
 
-**Tech stack:** LangGraph · LangChain · Groq LLM · MCP · Mem0 · Neon PostgreSQL · Streamlit
+### The four production layers (recruiter summary)
+
+| Layer | Problem it solves | Key files |
+|-------|-------------------|-----------|
+| **Memory** | Users shouldn't repeat preferences every trip; follow-ups should be instant | `memory/`, `graph/nodes/memory_*.py` |
+| **Guardrails** | LLM apps must block jailbreaks, PII leaks, and toxic input before agents run | `guardrails/pipeline.py` |
+| **Observability** | Multi-agent pipelines are hard to debug without per-node traces | `observability.py`, `docs/LANGSMITH.md` |
+| **Evaluations** | Ship agent changes safely — measure tool use, plan quality, and memory retention | `evals/`, `evals/README.md` |
+
+**Tech stack:** LangGraph · LangChain · Groq LLM · MCP · Mem0 · Neon PostgreSQL · NeMo Guardrails · LangSmith · DeepEval · Streamlit
 
 ---
 
@@ -254,6 +281,8 @@ flowchart TD
 
 ## Memory System
 
+> **Why it matters:** Separating session state from user identity is a common interview topic. Voyager uses `thread_id` for the current trip and `user_id` for cross-session preferences — never mixed.
+
 Voyager AI uses **two separate memory systems** with different keys, lifetimes, and purposes. They are **not mixed** — each has a clear job.
 
 | Tier | Technology | Key | Scope | Analogy |
@@ -334,6 +363,8 @@ PostgresSaver checkpoints the full state after each step automatically.
 
 ## Safety (Guardrails)
 
+> **Why it matters:** Production LLM apps need defense-in-depth — not just a system prompt. Voyager blocks jailbreaks, PII, and toxic input *before* any agent or MCP tool is invoked.
+
 NeMo Guardrails run **before** the message router (input) and **after** agent replies (output). Blocked messages never reach LangGraph.
 
 | Check layer | What it catches | Implementation |
@@ -374,6 +405,8 @@ sequenceDiagram
 ---
 
 ## Observability (LangSmith)
+
+> **Why it matters:** With 6 agents and 3 MCP servers, you cannot debug from logs alone. LangSmith shows exactly which node failed, which tool was called, and which user/session triggered the run.
 
 Every trip-planning run is traced in LangSmith with graph nodes, LLM calls, metadata (`user_id`, `thread_id`), and tags.
 
@@ -815,6 +848,8 @@ What can you do?
 
 ## Evaluations
 
+> **Why it matters:** Agent apps regress silently — wrong tool choice, forgotten preferences, or a greeting triggering a full graph run. Voyager runs **13 automated evals** on every PR (CI), daily (agent quality), and weekly (memory).
+
 Voyager AI ships **13 eval metrics** in three suites (CI / nightly / memory). Results append to Markdown logs under `evals/results/`.
 
 | Suite | Metrics | Command | Schedule | Results file |
@@ -859,20 +894,35 @@ flowchart LR
 ## Interview Quick Reference
 
 **What is this project?**  
-A multi-agent AI travel planner using LangGraph orchestration, MCP tool integration, and dual-layer memory (PostgresSaver short-term + Mem0 long-term).
+A production-style multi-agent AI travel planner: LangGraph orchestration, MCP tool integration, dual-layer memory, NeMo guardrails, LangSmith tracing, and a 13-metric DeepEval suite.
 
-**Short-term memory:** Full `TravelState` keyed by `thread_id`, auto-checkpointed by LangGraph PostgresSaver after every node.
+**Memory (two tiers, two keys):**
+- **Short-term** — PostgresSaver on Neon, keyed by `thread_id`. Full `TravelState` auto-checkpointed after every graph node. Powers follow-ups and session restore.
+- **Long-term** — Mem0 Platform, keyed by `user_id`. Durable preferences only (diet, budget, style). `retrieve_memory` at graph start, `store_memory` at graph end.
+- Deep-dive: [`memory/README.md`](memory/README.md)
 
-**Long-term memory:** Durable user preferences via Mem0 semantic search, keyed by `user_id`. Retrieved at graph start, saved at graph end after LLM fact extraction.
+**Guardrails (input + output):**  
+Regex fast-path → PII detection → Colang flows → Groq 8B self-check. Blocked input never reaches the router or LangGraph. Output is sanitized before the user sees it.  
+Deep-dive: [`guardrails/README.md`](guardrails/README.md)
 
-**Memory deep-dive:** [`memory/README.md`](memory/README.md)
+**Observability:**  
+`observability.py` sets LangSmith env vars; `build_run_config()` attaches `user_id`, `thread_id`, and tags. Every agent node and nested `ChatGroq` call appears as a trace span.  
+Deep-dive: [`docs/LANGSMITH.md`](docs/LANGSMITH.md)
+
+**Evaluations (13 metrics, 3 schedules):**
+- **CI (PR):** guardrail alignment, prompt injection block, router intent → `pytest evals/test_ci.py`
+- **Nightly:** task completion, tool correctness, plan adherence, plan quality, argument correctness → DeepEval + Groq judge
+- **Weekly:** knowledge retention, turn relevancy, faithfulness, contextual recall, goal accuracy → multi-turn Mem0 tests  
+Deep-dive: [`evals/README.md`](evals/README.md)
 
 **Three MCP types:**
 1. **Remote** — Tavily over HTTP (hotel + research search)
 2. **Local** — AviationStack stdio subprocess (flight data)
 3. **Custom local** — `custom_weather_mcp_server.py` stdio subprocess (weather)
 
-**User flow:** Username → router classifies message → greeting / follow-up (no agents) / new plan (6 agents + Mem0) → checkpoint saved → follow-ups answered from stored plan.
+**User flow:** Username → guardrails → router (greeting / follow-up / new plan) → (new plan) Mem0 retrieve → 6 agents + MCP → Mem0 store → Postgres checkpoint → guardrails on output → LangSmith trace.
+
+**Why this matters in interviews:** Shows you can build beyond a single LLM call — orchestration, tools, memory, safety, observability, and evals are what separate demo apps from shippable agent systems.
 
 ---
 
