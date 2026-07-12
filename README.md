@@ -2,7 +2,7 @@
 
 **Voyager AI** is a production-style AI travel planner: **6 specialist LangGraph agents** call **real-world tools** via **MCP** (Tavily, AviationStack, Weather), personalize trips with **dual-layer memory** (Postgres + Mem0), enforce **NeMo Guardrails** on every message, trace runs in **LangSmith**, and validate quality with **13 DeepEval metrics** across CI, nightly, and weekly suites.
 
-> **One-line pitch for recruiters:** *Multi-agent LangGraph app with MCP tools, two-tier memory, input/output guardrails, LangSmith tracing, and a 13-metric eval framework — not just a chatbot demo.*
+> **One-line pitch:** *Multi-agent LangGraph app with MCP tools, two-tier memory, input/output guardrails, LangSmith tracing, and a 13-metric eval framework — not just a chatbot demo.*
 
 ---
 
@@ -57,7 +57,7 @@ In simple terms:
 8. The final agent builds a **day-by-day itinerary**; **LangSmith** traces the full run for debugging.
 9. **Evals** (13 metrics) continuously verify guardrails, agent quality, and multi-turn memory.
 
-### The four production layers (recruiter summary)
+### The four production layers
 
 | Layer | Problem it solves | Key files |
 |-------|-------------------|-----------|
