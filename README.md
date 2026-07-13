@@ -2,8 +2,6 @@
 
 **Northline** is a production-style AI travel platform: **6 specialist LangGraph agents** call **live tools** via **MCP** (Tavily, AviationStack, Weather), personalize trips with **dual-layer memory** (Postgres + Mem0), enforce **NeMo Guardrails**, trace runs in **LangSmith**, validate quality with **13 DeepEval metrics**, and improve over time through an evidence-backed **Lesson Book** + thumbs feedback loop.
 
-> **GitHub pitch:** *Six specialist AI travel agents that plan real itineraries with live MCP tools, remember user prefs across sessions, enforce safety guardrails, trace runs in LangSmith, and get smarter from feedback via a Lesson Book + eval loop.*
-
 > **One-line pitch:** *Not a chatbot demo — a full agent stack: orchestration, tools, memory, safety, observability, evals, and self-improvement — with a React + FastAPI product UI.*
 
 ---
