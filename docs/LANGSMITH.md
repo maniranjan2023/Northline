@@ -1,10 +1,10 @@
-# LangSmith Observability for Voyager AI
+# LangSmith Observability for Northline
 
 This project traces LangGraph runs in [LangSmith](https://smith.langchain.com) using the official **Trace LangGraph applications** guide:
 
 **Official docs:** https://docs.langchain.com/langsmith/trace-with-langgraph
 
-Because Voyager AI uses **LangChain modules inside LangGraph** (`ChatGroq`, `SystemMessage`, etc.), tracing is enabled with environment variables only — no extra decorators are required for LLM calls.
+Because Northline uses **LangChain modules inside LangGraph** (`ChatGroq`, `SystemMessage`, etc.), tracing is enabled with environment variables only — no extra decorators are required for LLM calls.
 
 ---
 
@@ -15,8 +15,8 @@ When tracing is on, each trip-planning run sends a trace to LangSmith showing:
 - The top-level LangGraph run (`travel_planning`)
 - Each graph node (`memory_load`, `flight_agent`, `hotel_agent`, `weather_agent`, `itinerary_agent`, `memory_save`)
 - Nested `ChatGroq` LLM calls inside agents
-- Metadata: `user_id`, `thread_id`, `app=voyager-ai`
-- Tags: `voyager-ai`, `langgraph`, `user:<username>`, `streamlit`, `trip-planning`
+- Metadata: `user_id`, `thread_id`, `app=northline`
+- Tags: `northline`, `langgraph`, `user:<username>`, `streamlit`, `trip-planning`
 
 ## Trace flow
 
@@ -84,7 +84,7 @@ Add these lines to your project `.env` (do **not** commit real keys):
 ```env
 LANGSMITH_TRACING=true
 LANGSMITH_API_KEY=lsv2_pt_...your_key...
-LANGSMITH_PROJECT=voyager-ai-travel
+LANGSMITH_PROJECT=northline-travel
 LANGCHAIN_CALLBACKS_BACKGROUND=false
 ```
 
@@ -110,7 +110,7 @@ Expected when configured correctly:
 ```json
 {
   "enabled": true,
-  "project": "voyager-ai-travel",
+  "project": "northline-travel",
   "endpoint": "https://api.smith.langchain.com",
   "reason": ""
 }
@@ -155,7 +155,7 @@ Enter a username and travel request. This also produces a trace when LangSmith i
 ## 6. View traces in LangSmith
 
 1. Open https://smith.langchain.com
-2. Select project **`voyager-ai-travel`** (or your `LANGSMITH_PROJECT` value)
+2. Select project **`northline-travel`** (or your `LANGSMITH_PROJECT` value)
 3. Open the latest run named **`travel_planning`**
 4. Use **Details** view for the full graph tree (nodes + LLM children)
 5. Use **Messages** view for a chat-style timeline

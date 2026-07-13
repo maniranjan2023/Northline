@@ -1,4 +1,4 @@
-# Memory Architecture — Voyager AI
+# Memory Architecture — Northline
 
 Production memory uses **two separate tiers** with clear responsibilities.
 

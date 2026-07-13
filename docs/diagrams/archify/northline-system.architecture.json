@@ -1,0 +1,40 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "Northline — System Architecture",
+    "subtitle": "Streamlit · LangGraph · MCP · Mem0 · Guardrails · LangSmith",
+    "output": "northline-system.html"
+  },
+  "components": [
+    { "id": "user", "type": "external", "label": "Traveler", "sublabel": "browser", "pos": [30, 300], "size": [110, 58] },
+    { "id": "ui", "type": "frontend", "label": "Streamlit", "sublabel": "frontend.py", "pos": [200, 300], "size": [120, 58] },
+    { "id": "guard", "type": "security", "label": "Guardrails", "sublabel": "NeMo safety", "pos": [380, 180], "size": [120, 58] },
+    { "id": "router", "type": "backend", "label": "Router", "sublabel": "intent", "pos": [380, 300], "size": [120, 58] },
+    { "id": "graph", "type": "backend", "label": "LangGraph", "sublabel": "6 agents", "pos": [560, 300], "size": [120, 58] },
+    { "id": "mcp", "type": "messagebus", "label": "MCP", "sublabel": "3 tool servers", "pos": [560, 450], "size": [120, 58] },
+    { "id": "groq", "type": "cloud", "label": "Groq LLM", "sublabel": "llama-3.3", "pos": [740, 180], "size": [120, 58] },
+    { "id": "postgres", "type": "database", "label": "Postgres", "sublabel": "short-term", "pos": [740, 300], "size": [120, 58] },
+    { "id": "mem0", "type": "cloud", "label": "Mem0", "sublabel": "long-term", "pos": [740, 420], "size": [120, 58] },
+    { "id": "langsmith", "type": "cloud", "label": "LangSmith", "sublabel": "traces", "pos": [920, 300], "size": [120, 58] }
+  ],
+  "boundaries": [
+    { "kind": "region", "label": "Northline App", "wraps": ["ui", "guard", "router", "graph", "mcp"] },
+    { "kind": "security-group", "label": "External Services", "wraps": ["groq", "postgres", "mem0", "langsmith"] }
+  ],
+  "connections": [
+    { "from": "user", "to": "ui", "variant": "emphasis" },
+    { "from": "ui", "to": "guard", "variant": "security", "fromSide": "top", "toSide": "left" },
+    { "from": "guard", "to": "router", "variant": "emphasis", "fromSide": "bottom", "toSide": "top" },
+    { "from": "router", "to": "graph", "variant": "emphasis" },
+    { "from": "graph", "to": "mcp", "variant": "dashed", "fromSide": "bottom", "toSide": "top", "labelAt": [620, 400] },
+    { "from": "graph", "to": "groq", "variant": "default", "fromSide": "top", "toSide": "left" },
+    { "from": "graph", "to": "postgres", "variant": "default" },
+    { "from": "graph", "to": "mem0", "variant": "default", "fromSide": "bottom", "toSide": "left", "labelAt": [700, 400] },
+    { "from": "graph", "to": "langsmith", "variant": "dashed", "labelAt": [850, 290] }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Agent pipeline", "items": ["retrieve_memory → planner → research → hotel → flight → activity → final → store"] },
+    { "dot": "emerald", "title": "Memory", "items": ["PostgresSaver = session (thread_id)", "Mem0 = user prefs (user_id)"] }
+  ]
+}

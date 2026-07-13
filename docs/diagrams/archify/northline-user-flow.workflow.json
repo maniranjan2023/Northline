@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "diagram_type": "workflow",
+  "meta": {
+    "title": "Northline — User Message Flow",
+    "subtitle": "Greeting · follow-up · or full trip plan",
+    "output": "northline-user-flow.html"
+  },
+  "lanes": [
+    { "id": "user", "label": "User" },
+    { "id": "ui", "label": "Streamlit" },
+    { "id": "safety", "label": "Guardrails" },
+    { "id": "route", "label": "Router" },
+    { "id": "exec", "label": "Execution" }
+  ],
+  "mainPath": ["msg", "ui_in", "guard", "router", "exec", "reply"],
+  "nodes": [
+    { "id": "msg", "lane": "user", "col": 0, "type": "external", "label": "Message", "sublabel": "user input" },
+    { "id": "ui_in", "lane": "ui", "col": 1, "type": "frontend", "label": "Receive", "sublabel": "frontend" },
+    { "id": "guard", "lane": "safety", "col": 2, "type": "security", "label": "Guardrails", "sublabel": "input check", "width": 110 },
+    { "id": "block", "lane": "safety", "col": 3, "type": "security", "label": "Refusal", "sublabel": "blocked" },
+    { "id": "router", "lane": "route", "col": 3, "type": "backend", "label": "Router", "sublabel": "classify", "width": 110 },
+    { "id": "exec", "lane": "exec", "col": 4, "type": "backend", "label": "Execute", "sublabel": "greet / follow / graph", "width": 120 },
+    { "id": "reply", "lane": "ui", "col": 5, "type": "frontend", "label": "Reply", "sublabel": "output guard" }
+  ],
+  "edges": [
+    { "from": "msg", "to": "ui_in", "variant": "emphasis" },
+    { "from": "ui_in", "to": "guard", "variant": "security", "fromSide": "bottom", "toSide": "top", "route": "drop" },
+    { "from": "guard", "to": "block", "label": "block", "variant": "security", "fromSide": "right", "toSide": "left", "labelAt": [365, 280] },
+    { "from": "guard", "to": "router", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "route": "drop", "labelAt": [365, 430] },
+    { "from": "router", "to": "exec", "variant": "emphasis", "fromSide": "bottom", "toSide": "top", "route": "drop" },
+    { "from": "exec", "to": "reply", "variant": "emphasis", "fromSide": "right", "toSide": "bottom", "route": "drop" },
+    { "from": "block", "to": "reply", "variant": "security", "fromSide": "right", "toSide": "top", "route": "outside-right" }
+  ],
+  "cards": [
+    { "dot": "cyan", "title": "Router intents", "items": ["greeting → quick reply (no agents)", "follow_up → LLM + checkpoint (no full graph)", "new_plan → all 6 agents + MCP"] }
+  ]
+}

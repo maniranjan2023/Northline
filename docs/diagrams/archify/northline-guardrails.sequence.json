@@ -1,0 +1,37 @@
+{
+  "schema_version": 1,
+  "diagram_type": "sequence",
+  "meta": {
+    "title": "Northline — Guardrails Flow",
+    "subtitle": "Layered input safety before agents run",
+    "output": "northline-guardrails.html",
+    "viewBox": [900, 720]
+  },
+  "participants": [
+    { "id": "user", "type": "external", "label": "User", "sublabel": "input" },
+    { "id": "regex", "type": "security", "label": "Regex", "sublabel": "fast path" },
+    { "id": "pii", "type": "security", "label": "PII", "sublabel": "detect" },
+    { "id": "nemo", "type": "security", "label": "NeMo", "sublabel": "Colang" },
+    { "id": "groq", "type": "security", "label": "Groq 8B", "sublabel": "self-check" },
+    { "id": "app", "type": "backend", "label": "Router", "sublabel": "if allowed" }
+  ],
+  "segments": [
+    { "from": 160, "to": 400, "label": "INPUT GUARDRAILS" }
+  ],
+  "messages": [
+    { "from": "user", "to": "regex", "y": 180, "label": "user message", "variant": "emphasis" },
+    { "from": "regex", "to": "pii", "y": 240, "label": "no regex hit", "variant": "default" },
+    { "from": "pii", "to": "nemo", "y": 300, "label": "no PII", "variant": "default" },
+    { "from": "nemo", "to": "groq", "y": 360, "label": "semantic OK", "variant": "default" },
+    { "from": "groq", "to": "app", "y": 420, "label": "allowed", "variant": "emphasis" },
+    { "from": "regex", "to": "user", "y": 500, "label": "block + refuse", "variant": "security" },
+    { "from": "app", "to": "user", "y": 560, "label": "output guardrails", "variant": "return" }
+  ],
+  "activations": [
+    { "participant": "nemo", "from": 280, "to": 380, "type": "security" }
+  ],
+  "cards": [
+    { "dot": "rose", "title": "Layers", "items": ["Regex: injection, jailbreak, toxic", "PII: email, card, API keys", "NeMo Colang + Groq 8B backup"] },
+    { "dot": "cyan", "title": "On block", "items": ["Safe refusal shown to user", "LangGraph agents never called"] }
+  ]
+}

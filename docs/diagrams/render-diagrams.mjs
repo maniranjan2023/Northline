@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * Render all Voyager archify diagrams to HTML + README-ready SVG/PNG assets.
+ * Render all Northline archify diagrams to HTML + README-ready SVG/PNG assets.
  * Usage: node docs/diagrams/render-diagrams.mjs
  */
 
@@ -21,12 +21,12 @@ const pngDir = path.join(__dirname, 'png');
 const assetsPngDir = path.join(__dirname, '../../assets/diagrams');
 
 const DIAGRAMS = [
-  { json: 'voyager-system.architecture.json', html: 'voyager-system.html', base: 'voyager-system' },
-  { json: 'voyager-user-flow.workflow.json', html: 'voyager-user-flow.html', base: 'voyager-user-flow' },
-  { json: 'voyager-memory.dataflow.json', html: 'voyager-memory.html', base: 'voyager-memory' },
-  { json: 'voyager-guardrails.sequence.json', html: 'voyager-guardrails.html', base: 'voyager-guardrails' },
-  { json: 'voyager-observability.sequence.json', html: 'voyager-observability.html', base: 'voyager-observability' },
-  { json: 'voyager-evals.workflow.json', html: 'voyager-evals.html', base: 'voyager-evals' },
+  { json: 'northline-system.architecture.json', html: 'northline-system.html', base: 'northline-system' },
+  { json: 'northline-user-flow.workflow.json', html: 'northline-user-flow.html', base: 'northline-user-flow' },
+  { json: 'northline-memory.dataflow.json', html: 'northline-memory.html', base: 'northline-memory' },
+  { json: 'northline-guardrails.sequence.json', html: 'northline-guardrails.html', base: 'northline-guardrails' },
+  { json: 'northline-observability.sequence.json', html: 'northline-observability.html', base: 'northline-observability' },
+  { json: 'northline-evals.workflow.json', html: 'northline-evals.html', base: 'northline-evals' },
 ];
 
 function typeFromFilename(filename) {

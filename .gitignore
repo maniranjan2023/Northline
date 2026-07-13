@@ -4,16 +4,21 @@
 
 # Cursor / agent local files
 .agents/
-
+.deepeval/
 # Secrets — never commit API keys or DB URLs
 .env
+backend/.env
+frontend/.env
 !.env.example
+!backend/.env.example
+!frontend/.env.example
 .nemo-guardrails-demo/
 .deepeval/
 # Local run scripts (machine-specific)
 run.bat
 run.ps1
-
+.github/
+.vscode/
 # Local skills lock file
 skills-lock.json
 
