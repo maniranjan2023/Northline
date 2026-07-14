@@ -42,7 +42,11 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+# Python packaging dirs only — do not ignore frontend/src/lib (shadcn utils)
+/lib/
+backend/**/lib/
+!frontend/src/lib/
+!frontend/src/lib/**
 lib64/
 parts/
 sdist/
