@@ -315,7 +315,7 @@ export function ChatPage() {
             </Button>
             {backendOnline === false && (
               <p className="text-center text-xs text-destructive">
-                Backend offline. In a terminal run:{' '}
+                Backend offline. Please check the backend server and try again.
               </p>
             )}
             {backendOnline === true && !backendReady && (
