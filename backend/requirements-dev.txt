@@ -1,0 +1,5 @@
+# Dev / CI / evals only — do NOT install on Render production builds.
+-r requirements.txt
+
+pytest>=8.0.0,<9.0.0
+deepeval>=2.0.0,<3.0.0
