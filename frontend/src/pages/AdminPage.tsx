@@ -21,6 +21,7 @@ import {
 import type { CandidateSummary, ImprovementEvent, LessonSummary, ProposalDetail, ProposalSummary } from '@/api/types'
 import { AdminStatCard } from '@/components/admin/admin-shared'
 import { CandidatesTab } from '@/components/admin/CandidatesTab'
+import { EvalsTab } from '@/components/admin/EvalsTab'
 import { EventsTab } from '@/components/admin/EventsTab'
 import { LessonsTab } from '@/components/admin/LessonsTab'
 import { ProposalsTab } from '@/components/admin/ProposalsTab'
@@ -32,13 +33,14 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { cn } from '@/lib/utils'
 
-type AdminTab = 'proposals' | 'lessons' | 'candidates' | 'events'
+type AdminTab = 'proposals' | 'lessons' | 'candidates' | 'events' | 'evals'
 
 const TAB_ITEMS: { id: AdminTab; label: string }[] = [
   { id: 'proposals', label: 'Proposals' },
   { id: 'lessons', label: 'Lessons' },
   { id: 'candidates', label: 'Candidates' },
   { id: 'events', label: 'Events' },
+  { id: 'evals', label: 'Evals' },
 ]
 
 export function AdminPage() {
@@ -65,6 +67,7 @@ export function AdminPage() {
     lessons: lessons.length,
     candidates: candidates.length,
     events: events.length,
+    evals: 13,
   }
 
   const stats = useMemo(() => {
@@ -275,7 +278,7 @@ export function AdminPage() {
 
       <Card className="overflow-hidden shadow-sm">
         <CardHeader className="border-b bg-muted/20 pb-0">
-          <CardDescription className="pb-3">Switch sections to browse proposals, lessons, candidates, and events.</CardDescription>
+          <CardDescription className="pb-3">Switch sections to browse proposals, lessons, candidates, events, and evals.</CardDescription>
           <div
             role="tablist"
             aria-label="Admin sections"
@@ -326,6 +329,8 @@ export function AdminPage() {
           {activeTab === 'candidates' && <CandidatesTab candidates={candidates} loading={loading} />}
 
           {activeTab === 'events' && <EventsTab events={events} loading={loading} />}
+
+          {activeTab === 'evals' && <EvalsTab adminKey={adminKey} />}
         </CardContent>
       </Card>
     </div>

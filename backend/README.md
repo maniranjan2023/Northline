@@ -13,10 +13,22 @@ python run.py
 
 1. **Root Directory** = `Mcp-proj/backend` (or `backend` if that is the repo root)
 2. **Python Version** = `3.12` (also set via `runtime.txt` → `python-3.12.8`)
-3. **Build Command** = `pip install -r requirements.txt`
+3. **Build Command** (main deps **plus** AviationStack MCP):
+
+```bash
+pip install -r requirements.txt && pip install ./aviationstack-mcp-main
+```
+
 4. **Start Command** = `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 
 Do **not** install `requirements-dev.txt` on Render — that file is for local tests/evals (`deepeval`, `pytest`) and makes dependency resolution much slower.
+
+| What | Needed on Render? | Why |
+|------|-------------------|-----|
+| `pip install -r requirements.txt` | **Yes** | FastAPI, LangGraph, Mem0, NeMo, etc. |
+| `pip install ./aviationstack-mcp-main` | **Yes** | Flight agent runs `python -m aviationstack_mcp mcp run` |
+| Weather MCP | **No separate install** | `custom_weather_mcp_server.py` is started from the same env |
+| Tavily MCP | **No install** | Remote HTTP MCP (only needs `TAVILY_API_KEY`) |
 
 On startup the API automatically warms MCP tools (Tavily, **AviationStack**, Weather). You do **not** need a third terminal for AviationStack.
 

@@ -1,6 +1,11 @@
 import type {
   CandidateSummary,
   ChatResponse,
+  EvalCapabilities,
+  EvalJobResponse,
+  EvalResultsResponse,
+  EvalRunStartResponse,
+  EvalSuiteRequest,
   FeedbackResponse,
   ImprovementEvent,
   LessonSummary,
@@ -175,6 +180,25 @@ export function listCandidates(adminKey: string) {
 
 export function listEvents(adminKey: string) {
   return adminRequest<ImprovementEvent[]>('/api/admin/events?limit=100', adminKey)
+}
+
+export function getEvalCapabilities(adminKey: string) {
+  return adminRequest<EvalCapabilities>('/api/admin/evals/capabilities', adminKey)
+}
+
+export function getEvalResults(adminKey: string) {
+  return adminRequest<EvalResultsResponse>('/api/admin/evals/results', adminKey)
+}
+
+export function startEvalRun(adminKey: string, suite: EvalSuiteRequest = 'all') {
+  return adminRequest<EvalRunStartResponse>('/api/admin/evals/run', adminKey, {
+    method: 'POST',
+    body: JSON.stringify({ suite }),
+  })
+}
+
+export function getEvalJob(adminKey: string, jobId: string) {
+  return adminRequest<EvalJobResponse>(`/api/admin/evals/jobs/${jobId}`, adminKey)
 }
 
 export function streamPlan(params: {

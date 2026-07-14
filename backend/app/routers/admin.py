@@ -14,6 +14,14 @@ from app.schemas.admin import (
     ProposalSummary,
     SystemStatus,
 )
+from app.schemas.eval import (
+    EvalCapabilities,
+    EvalJobResponse,
+    EvalResultsResponse,
+    EvalRunRequest,
+    EvalRunStartResponse,
+    EvalSuiteResults,
+)
 from app.services.admin_service import (
     get_proposal,
     get_system_status,
@@ -22,6 +30,13 @@ from app.services.admin_service import (
     list_lessons,
     list_proposals,
     review_proposal,
+)
+from app.services.eval_runner_service import (
+    get_capabilities,
+    get_job,
+    get_results_payload,
+    list_recent_jobs,
+    start_eval_job,
 )
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
@@ -73,3 +88,48 @@ def candidates(lesson_book=Depends(get_lesson_book)) -> list[CandidateSummary]:
 @router.get("/events", response_model=list[ImprovementEvent])
 def events(limit: int = 100, lesson_book=Depends(get_lesson_book)) -> list[ImprovementEvent]:
     return [ImprovementEvent(**item) for item in list_improvement_events(lesson_book, limit=limit)]
+
+
+def _optional_suite_results(data: dict | None) -> EvalSuiteResults | None:
+    if not data:
+        return None
+    return EvalSuiteResults(**data)
+
+
+@router.get("/evals/capabilities", response_model=EvalCapabilities)
+def eval_capabilities() -> EvalCapabilities:
+    return EvalCapabilities(**get_capabilities())
+
+
+@router.get("/evals/results", response_model=EvalResultsResponse)
+def eval_results() -> EvalResultsResponse:
+    payload = get_results_payload()
+    return EvalResultsResponse(
+        ci=_optional_suite_results(payload.get("ci")),
+        single_turn=_optional_suite_results(payload.get("single_turn")),
+        multi_turn=_optional_suite_results(payload.get("multi_turn")),
+        eval_deps_installed=payload.get("eval_deps_installed", False),
+        active_job_id=payload.get("active_job_id"),
+    )
+
+
+@router.post("/evals/run", response_model=EvalRunStartResponse)
+def eval_run(payload: EvalRunRequest) -> EvalRunStartResponse:
+    try:
+        result = start_eval_job(payload.suite)
+        return EvalRunStartResponse(**result)
+    except RuntimeError as exc:
+        raise HTTPException(409, str(exc)) from exc
+
+
+@router.get("/evals/jobs", response_model=list[EvalJobResponse])
+def eval_jobs(limit: int = 10) -> list[EvalJobResponse]:
+    return [EvalJobResponse(**job) for job in list_recent_jobs(limit=limit)]
+
+
+@router.get("/evals/jobs/{job_id}", response_model=EvalJobResponse)
+def eval_job_status(job_id: str) -> EvalJobResponse:
+    job = get_job(job_id)
+    if not job:
+        raise HTTPException(404, "Eval job not found.")
+    return EvalJobResponse(**job)

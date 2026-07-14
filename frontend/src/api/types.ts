@@ -127,6 +127,90 @@ export interface SystemStatus {
   mcp_ready?: boolean
 }
 
+export type EvalSuiteRequest = 'all' | 'ci' | 'single_turn' | 'multi_turn'
+export type EvalSuiteKey = 'ci' | 'single_turn' | 'multi_turn'
+export type SuiteRunStatus = 'queued' | 'running' | 'completed' | 'failed' | 'skipped'
+export type EvalJobStatus = 'queued' | 'running' | 'completed' | 'failed'
+
+export interface EvalMetricSummary {
+  metric_name: string
+  passed: number
+  total: number
+  pass_rate: number
+}
+
+export interface EvalResultRow {
+  metric_name: string
+  case_id: string
+  passed: boolean
+  score: number | null
+  threshold: number | null
+  reason: string
+  input_preview: string
+}
+
+export interface EvalSuiteResults {
+  suite: string
+  suite_label: string
+  run_at?: string | null
+  passed: number
+  total: number
+  metrics_summary: EvalMetricSummary[]
+  rows: EvalResultRow[]
+}
+
+export interface EvalResultsResponse {
+  ci: EvalSuiteResults | null
+  single_turn: EvalSuiteResults | null
+  multi_turn: EvalSuiteResults | null
+  eval_deps_installed: boolean
+  active_job_id?: string | null
+}
+
+export interface EvalSuiteProgress {
+  status: SuiteRunStatus
+  passed?: number | null
+  failed?: number | null
+  total?: number | null
+  exit_code?: number | null
+  duration_seconds?: number | null
+  error?: string | null
+}
+
+export interface EvalJobResponse {
+  job_id: string
+  suite: EvalSuiteRequest
+  status: EvalJobStatus
+  created_at: string
+  started_at?: string | null
+  finished_at?: string | null
+  progress: Record<EvalSuiteKey, EvalSuiteProgress>
+  error?: string | null
+  log_tail?: string
+}
+
+export interface EvalRunStartResponse {
+  job_id: string
+  suite: EvalSuiteRequest
+  status: EvalJobStatus
+  message: string
+}
+
+export interface EvalCapabilities {
+  eval_deps_installed: boolean
+  deepeval_available: boolean
+  pytest_available: boolean
+  active_job_id?: string | null
+  suites: Record<
+    EvalSuiteKey,
+    {
+      label: string
+      metric_count: number
+      requires_live: boolean
+    }
+  >
+}
+
 export interface AgentMeta {
   id: string
   icon: string
