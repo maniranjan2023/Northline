@@ -280,12 +280,31 @@ export function EvalsTab({ adminKey }: Props) {
         </div>
 
         {!capabilities?.eval_deps_installed && (
-          <Alert variant="destructive" className="mt-4">
+          <Alert className="mt-4">
             <AlertCircle data-icon="inline-start" />
-            <AlertTitle>Eval dependencies missing</AlertTitle>
-            <AlertDescription>
-              Install dev dependencies on the backend:{' '}
-              <code className="rounded bg-muted px-1 py-0.5 text-xs">pip install -r requirements-dev.txt</code>
+            <AlertTitle>Evals Run is not enabled on this server</AlertTitle>
+            <AlertDescription className="flex flex-col gap-2">
+              <span>
+                Chat and the rest of Admin still work. To enable the Run buttons, install{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-xs">pytest</code> and{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-xs">deepeval</code> on the backend
+                and redeploy.
+              </span>
+              <span>
+                <strong>Local:</strong>{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-xs">pip install -r requirements-dev.txt</code>
+              </span>
+              <span>
+                <strong>Render build:</strong>{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-xs break-all">
+                  pip install -r requirements.txt && pip install ./aviationstack-mcp-main && pip install -r
+                  requirements-evals.txt
+                </code>
+              </span>
+              <span className="text-muted-foreground">
+                Live suites (single-turn / multi-turn) can take 30–60 minutes and need your API keys. Prefer
+                starting with <strong>Run CI only</strong> first.
+              </span>
             </AlertDescription>
           </Alert>
         )}

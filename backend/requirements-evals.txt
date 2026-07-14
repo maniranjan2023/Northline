@@ -1,0 +1,8 @@
+# Optional — only if Admin → Evals → Run should work on this server.
+# Install AFTER requirements.txt (do not use -r) to avoid pip resolution-too-deep.
+#
+# Render build (with Admin Evals enabled):
+#   pip install -r requirements.txt && pip install ./aviationstack-mcp-main && pip install -r requirements-evals.txt
+
+pytest>=8.0.0,<9.0.0
+deepeval>=2.0.0,<3.0.0

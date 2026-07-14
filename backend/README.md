@@ -19,9 +19,15 @@ python run.py
 pip install -r requirements.txt && pip install ./aviationstack-mcp-main
 ```
 
+To enable **Admin → Evals → Run** on Render, append evals packages (install last, avoids resolution-too-deep):
+
+```bash
+pip install -r requirements.txt && pip install ./aviationstack-mcp-main && pip install -r requirements-evals.txt
+```
+
 4. **Start Command** = `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 
-Do **not** install `requirements-dev.txt` on Render — that file is for local tests/evals (`deepeval`, `pytest`) and makes dependency resolution much slower.
+Do **not** use `requirements-dev.txt` on Render for that optional step — it re-includes all production deps and can trigger `resolution-too-deep`. Use `requirements-evals.txt` instead.
 
 | What | Needed on Render? | Why |
 |------|-------------------|-----|
