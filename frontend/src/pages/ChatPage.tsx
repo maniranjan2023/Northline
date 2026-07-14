@@ -316,8 +316,6 @@ export function ChatPage() {
             {backendOnline === false && (
               <p className="text-center text-xs text-destructive">
                 Backend offline. In a terminal run:{' '}
-                <code className="rounded bg-muted px-1 py-0.5">cd backend</code> then{' '}
-                <code className="rounded bg-muted px-1 py-0.5">.\start.ps1</code>
               </p>
             )}
             {backendOnline === true && !backendReady && (
