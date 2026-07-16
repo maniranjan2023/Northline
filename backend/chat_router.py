@@ -20,6 +20,9 @@ class MessageIntent(str, Enum):
     FOLLOW_UP = "follow_up"
     NEW_PLAN = "new_plan"
     CLARIFY = "clarify"
+    PREFERENCE_STATEMENT = "preference_statement"
+    PREFERENCE_CORRECTION = "preference_correction"
+    PREFERENCE_QUERY = "preference_query"
 
 
 # Phrases that mean the user is asking about an existing plan (past tense / recall).
@@ -53,6 +56,9 @@ GREETING_PATTERNS = [
 ]
 
 CORRECTION_PATTERNS = [
+    r"\bplease\s+correct\b",
+    r"\bcorrect\s+that\b",
+    r"\bi\s+meant\b",
     r"\bactually\b.*\b(prefer|vegan|vegetarian|halal|budget|flight|hotel|direct|avoid|not)\b",
     r"\bnot\s+\w+\s*,?\s*but\b",
     r"\b(please\s+)?remember that\b",
@@ -62,11 +68,51 @@ CORRECTION_PATTERNS = [
     r"\bdo not suggest\b",
 ]
 
+PREFERENCE_STATEMENT_PATTERNS = [
+    r"\b(?:i\s+)?(?:like|am|prefer|want|need|eat)\s+(?:to\s+be\s+)?(?:a\s+)?(?:vegetarian|vegan|halal|non[-\s]?vegetarian|non[-\s]?veg)\b",
+    r"\b(?:i\s+)?(?:am|i'm)\s+a\s+(?:vegetarian|vegan|halal|non[-\s]?vegetarian)\b",
+]
+
+PREFERENCE_CORRECTION_PATTERNS = [
+    r"\bplease\s+correct\b",
+    r"\bcorrect\s+that\b",
+    r"\bi\s+meant\b",
+    r"\bnot\s+(?:vegetarian|vegan|halal)\b.*\b(?:but|i\s+(?:like|am|prefer))\b",
+    r"\b(?:actually|correction)\b.*\b(?:vegetarian|vegan|halal|non[-\s]?vegetarian|non[-\s]?veg)\b",
+]
+
+PREFERENCE_QUERY_PATTERNS = [
+    r"\bwhat\s+(?:food|diet|dietary)\s+(?:do\s+)?i\s+(?:like|prefer|eat)\b",
+    r"\bam\s+i\s+(?:a\s+)?(?:vegetarian|vegan|halal|non[-\s]?vegetarian)\b",
+    r"\bmy\s+(?:food|dietary|diet)\s+preference\b",
+    r"\bwhat\s+(?:is|are)\s+my\s+(?:food|dietary|diet)\s+preference\b",
+    r"\bdo\s+i\s+(?:like|prefer|eat)\s+(?:vegetarian|vegan|halal|non[-\s]?vegetarian)\b",
+]
+
 
 def is_explicit_correction(text: str) -> bool:
     """True when the user explicitly corrects a durable preference."""
     normalized = (text or "").strip().lower()
+    if is_preference_correction(normalized):
+        return True
     return any(re.search(pattern, normalized) for pattern in CORRECTION_PATTERNS)
+
+
+def is_preference_statement(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    if is_preference_correction(normalized) or is_preference_query(normalized):
+        return False
+    return any(re.search(pattern, normalized) for pattern in PREFERENCE_STATEMENT_PATTERNS)
+
+
+def is_preference_correction(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return any(re.search(pattern, normalized) for pattern in PREFERENCE_CORRECTION_PATTERNS)
+
+
+def is_preference_query(text: str) -> bool:
+    normalized = (text or "").strip().lower()
+    return any(re.search(pattern, normalized) for pattern in PREFERENCE_QUERY_PATTERNS)
 
 
 def is_retrospective_question(text: str) -> bool:
@@ -95,6 +141,15 @@ def classify_message(user_query: str, has_previous_plan: bool) -> MessageIntent:
     for pattern in GREETING_PATTERNS:
         if re.search(pattern, text):
             return MessageIntent.GREETING
+
+    if is_preference_query(text):
+        return MessageIntent.PREFERENCE_QUERY
+
+    if is_preference_correction(text):
+        return MessageIntent.PREFERENCE_CORRECTION
+
+    if is_preference_statement(text):
+        return MessageIntent.PREFERENCE_STATEMENT
 
     # Always detect recall questions first — even with no plan in this session.
     if is_retrospective_question(text):
@@ -154,4 +209,24 @@ def build_clarify_reply(username: str) -> str:
         "- **How many days**\n"
         "- **Budget** (optional)\n\n"
         "Example: *Plan a 5-day trip to Paris under ₹1.5L*"
+    )
+
+
+def build_preference_ack(username: str, attribute_value: str) -> str:
+    return (
+        f"Got it, **{username}**! I've saved your food preference as **{attribute_value}**. "
+        "I'll use this when planning your trips."
+    )
+
+
+def build_preference_updated(username: str, attribute_value: str) -> str:
+    return (
+        f"Updated, **{username}**! Your latest food preference is **{attribute_value}**."
+    )
+
+
+def build_no_preference_reply(username: str) -> str:
+    return (
+        f"I don't have a saved food preference for you yet, **{username}**. "
+        "Tell me something like *\"I like vegetarian\"* and I'll remember it."
     )

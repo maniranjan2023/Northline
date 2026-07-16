@@ -9,6 +9,7 @@ import { AgentPipeline } from '@/components/AgentPipeline'
 import { ChatMessageRow } from '@/components/ChatMessageRow'
 import { FeedbackPanel } from '@/components/FeedbackPanel'
 import { LiveAgentResults } from '@/components/LiveAgentResults'
+import { MemoryUpdateBadge } from '@/components/MemoryUpdateBadge'
 import { ThinkingIndicator } from '@/components/ThinkingIndicator'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -173,6 +174,7 @@ export function ChatPage() {
             message_type: initial.message_type,
             run_id: initial.run_id ?? undefined,
             user_query: trimmed,
+            memory_update: initial.memory_update ?? undefined,
           },
         ])
         return
@@ -417,6 +419,11 @@ export function ChatPage() {
                 {message.agents && (
                   <div className="w-full max-w-3xl">
                     <AgentCards agents={message.agents} />
+                  </div>
+                )}
+                {message.memory_update && (
+                  <div className="w-full max-w-md">
+                    <MemoryUpdateBadge update={message.memory_update} />
                   </div>
                 )}
                 {message.run_id && (message.message_type === 'plan' || message.message_type === 'follow_up') && (

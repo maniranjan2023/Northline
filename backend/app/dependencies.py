@@ -56,6 +56,13 @@ def init_app_resources() -> None:
         except Exception as exc:
             logger.warning("Eval job store bind failed: %s", exc)
 
+        try:
+            from memory.profile_store import bind_pool as bind_profile_pool
+
+            bind_profile_pool(db_pool)
+        except Exception as exc:
+            logger.warning("Profile store bind failed: %s", exc)
+
         _resources = {
             "llm": llm,
             "checkpointer": checkpointer,

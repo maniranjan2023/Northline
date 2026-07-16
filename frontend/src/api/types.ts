@@ -5,13 +5,31 @@ export interface SessionResponse {
   welcome_message: string
 }
 
+export interface MemoryUpdateInfo {
+  action: 'added' | 'updated'
+  attribute_key: string
+  attribute_label: string
+  previous_value?: string
+  new_value: string
+  source?: string
+}
+
 export interface ChatResponse {
-  intent: 'greeting' | 'follow_up' | 'new_plan' | 'clarify' | 'blocked'
+  intent:
+    | 'greeting'
+    | 'follow_up'
+    | 'new_plan'
+    | 'clarify'
+    | 'blocked'
+    | 'preference_statement'
+    | 'preference_correction'
+    | 'preference_query'
   message: string
   run_id: string | null
   message_type: 'welcome' | 'text' | 'plan' | 'follow_up' | 'clarify' | 'blocked'
   agents?: AgentPayload | null
   guardrail_reason?: string | null
+  memory_update?: MemoryUpdateInfo | null
 }
 
 export interface AgentPayload {
@@ -52,6 +70,7 @@ export interface ChatMessage {
   user_query?: string
   agents?: AgentPayload
   feedback?: FeedbackState | null
+  memory_update?: MemoryUpdateInfo | null
 }
 
 export interface FeedbackState {

@@ -60,6 +60,7 @@ async def send_message(
         message_type=result.get("message_type", "text"),
         agents=result.get("agents"),
         guardrail_reason=result.get("guardrail_reason"),
+        memory_update=result.get("memory_update"),
     )
 
 

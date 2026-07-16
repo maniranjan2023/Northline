@@ -1,0 +1,239 @@
+"""Regression tests for structured user profile memory."""
+
+from __future__ import annotations
+
+import asyncio
+from unittest.mock import MagicMock, patch
+
+import pytest
+
+from chat_router import (
+    MessageIntent,
+    classify_message,
+    is_explicit_correction,
+    is_preference_correction,
+    is_preference_query,
+)
+from memory.memory_manager import MemoryManager
+from memory.preference_parser import answer_food_preference, answer_what_food, parse_preference
+from memory.profile_store import (
+    format_profile_block,
+    get_profile,
+    merge_memory_context,
+    reset_in_memory,
+    upsert_and_describe,
+    upsert_attribute,
+)
+from memory.provider.base import BaseMemoryProvider, MemoryItem
+
+
+@pytest.fixture(autouse=True)
+def _clean_profile_store():
+    reset_in_memory()
+    yield
+    reset_in_memory()
+
+
+class _MockProvider(BaseMemoryProvider):
+    def __init__(self, memories: list[str] | None = None):
+        self.memories = memories or []
+
+    async def search(self, user_id: str, query: str, *, limit: int = 8) -> list[MemoryItem]:
+        return [MemoryItem(id=str(index), memory=text) for index, text in enumerate(self.memories[:limit])]
+
+    async def add_messages(self, user_id: str, messages: list[dict[str, str]]) -> dict:
+        return {}
+
+    async def add_fact(self, user_id: str, fact: str) -> dict:
+        return {}
+
+    async def delete(self, memory_id: str) -> None:
+        pass
+
+    async def update(self, memory_id: str, text: str) -> None:
+        pass
+
+    async def get_all(self, user_id: str, *, limit: int = 100) -> list[MemoryItem]:
+        return []
+
+
+def test_upsert_and_describe_added_vs_updated():
+    added = upsert_and_describe("rahul", "food_preference", "vegetarian")
+    assert added is not None
+    assert added["action"] == "added"
+    assert added["new_value"] == "vegetarian"
+    assert added["previous_value"] == ""
+
+    updated = upsert_and_describe("rahul", "food_preference", "non-vegetarian")
+    assert updated is not None
+    assert updated["action"] == "updated"
+    assert updated["previous_value"] == "vegetarian"
+    assert updated["new_value"] == "non-vegetarian"
+
+    unchanged = upsert_and_describe("rahul", "food_preference", "non-vegetarian")
+    assert unchanged is None
+
+
+def test_correction_overwrites():
+    upsert_attribute("rahul", "food_preference", "vegetarian")
+    upsert_attribute("rahul", "food_preference", "non-vegetarian")
+    assert get_profile("rahul")["food_preference"] == "non-vegetarian"
+
+
+def test_multiple_corrections():
+    upsert_attribute("rahul", "food_preference", "vegetarian")
+    upsert_attribute("rahul", "food_preference", "non-vegetarian")
+    upsert_attribute("rahul", "food_preference", "vegetarian")
+    assert get_profile("rahul")["food_preference"] == "vegetarian"
+
+
+def test_preference_query_routing():
+    intent = classify_message("What food do I like?", has_previous_plan=False)
+    assert intent == MessageIntent.PREFERENCE_QUERY
+
+    intent = classify_message("Am I vegetarian or non-vegetarian?", has_previous_plan=False)
+    assert intent == MessageIntent.PREFERENCE_QUERY
+
+
+def test_preference_statement_routing():
+    intent = classify_message("I like vegetarian", has_previous_plan=False)
+    assert intent == MessageIntent.PREFERENCE_STATEMENT
+
+
+def test_correction_pattern_please_correct():
+    text = "Please correct, I like non-vegetarian"
+    assert is_preference_correction(text)
+    assert is_explicit_correction(text)
+
+    parsed = parse_preference(text)
+    assert parsed is not None
+    assert parsed.attribute_key == "food_preference"
+    assert parsed.attribute_value == "non-vegetarian"
+
+
+def test_parse_preference_variants():
+    cases = [
+        ("I am vegetarian", "vegetarian"),
+        ("I prefer vegan food", "vegan"),
+        ("I like halal", "halal"),
+        ("Actually I like non-veg", "non-vegetarian"),
+    ]
+    for message, expected in cases:
+        parsed = parse_preference(message)
+        assert parsed is not None, message
+        assert parsed.attribute_value == expected, message
+
+
+def test_deterministic_preference_answers():
+    profile = {"food_preference": "non-vegetarian"}
+    assert "non-vegetarian" in answer_what_food(profile)
+    assert "non-vegetarian" in answer_food_preference(profile)
+
+
+def test_retrieval_includes_profile_with_trip():
+    upsert_attribute("rahul", "food_preference", "vegetarian")
+    provider = _MockProvider(memories=["User enjoys beach destinations"])
+    mm = MemoryManager(llm=None, provider=provider)
+
+    context = asyncio.run(mm.load_memory_context("rahul", "Plan Bali for 5 days"))
+
+    assert "User Profile" in context
+    assert "vegetarian" in context
+    assert "beach" in context.lower()
+
+
+def test_retrieval_filters_stale_dietary_mem0_facts():
+    upsert_attribute("rahul", "food_preference", "non-vegetarian")
+    provider = _MockProvider(memories=["User is vegetarian", "Prefers direct flights"])
+    mm = MemoryManager(llm=None, provider=provider)
+
+    context = asyncio.run(mm.load_memory_context("rahul", "Plan Tokyo"))
+
+    assert "non-vegetarian" in context
+    assert "User is vegetarian" not in context
+    assert "direct flights" in context
+
+
+def test_format_and_merge_profile_block():
+    profile = {"food_preference": "vegan"}
+    block = format_profile_block(profile)
+    merged = merge_memory_context(block, "Known User Information\n- Likes museums")
+    assert block in merged
+    assert "museums" in merged
+
+
+def test_answer_follow_up_uses_profile(monkeypatch):
+    upsert_attribute("rahul", "food_preference", "non-vegetarian")
+
+    captured: dict[str, str] = {}
+
+    class _FakeResponse:
+        content = "You are non-vegetarian based on your profile."
+
+    def fake_invoke(messages, config=None):
+        captured["prompt"] = messages[-1].content
+        return _FakeResponse()
+
+    monkeypatch.setattr("main._llm", lambda: MagicMock(invoke=fake_invoke))
+    monkeypatch.setattr(
+        "main._memory_manager",
+        lambda: MemoryManager(llm=None, provider=_MockProvider()),
+    )
+    monkeypatch.setattr("main.load_user_plan", lambda *args, **kwargs: None)
+
+    from main import answer_follow_up
+
+    reply = answer_follow_up(
+        "Am I vegetarian?",
+        "rahul",
+        [],
+        None,
+        "rahul_chat",
+    )
+
+    assert "non-vegetarian" in captured["prompt"]
+    assert "non-vegetarian" in reply
+
+
+@pytest.mark.asyncio
+async def test_chat_service_preference_statement_persists():
+    from app.services.chat_service import handle_chat_message
+
+    memory_manager = MemoryManager(llm=None, provider=_MockProvider())
+    username = "test_user_profile_add"
+    result = await handle_chat_message(
+        username=username,
+        thread_id=f"{username}_chat",
+        message="I like vegetarian",
+        travel_graph=None,
+        memory_manager=memory_manager,
+        lesson_book=None,
+    )
+
+    assert result["intent"] == "preference_statement"
+    assert result.get("memory_update", {}).get("action") == "added"
+    assert get_profile(username)["food_preference"] == "vegetarian"
+
+
+@pytest.mark.asyncio
+async def test_chat_service_preference_query_without_plan():
+    from app.services.chat_service import handle_chat_message
+
+    upsert_attribute("rahul", "food_preference", "non-vegetarian")
+    memory_manager = MemoryManager(llm=None, provider=_MockProvider())
+    result = await handle_chat_message(
+        username="rahul",
+        thread_id="rahul_chat",
+        message="What food do I like?",
+        travel_graph=None,
+        memory_manager=memory_manager,
+        lesson_book=None,
+    )
+
+    assert result["intent"] == "preference_query"
+    assert "non-vegetarian" in result["message"]
+
+
+def test_is_preference_query_patterns():
+    assert is_preference_query("What is my dietary preference?")
+    assert not is_preference_query("Plan a 5-day trip to Bali")

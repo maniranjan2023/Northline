@@ -15,10 +15,19 @@ from chat_router import (
     build_clarify_reply,
     build_greeting_reply,
     build_no_plan_reply,
+    build_no_preference_reply,
+    build_preference_ack,
+    build_preference_updated,
     build_welcome_message,
     classify_message,
     is_explicit_correction,
 )
+from memory.preference_parser import (
+    answer_food_preference,
+    answer_what_food,
+    parse_preference,
+)
+from memory.profile_store import upsert_and_describe
 from guardrails.flags import guardrails_enabled
 from main import (
     answer_follow_up,
@@ -76,7 +85,7 @@ async def handle_chat_message(
     if not text:
         return {
             "intent": "clarify",
-            "message": build_clarify_reply(),
+            "message": build_clarify_reply(safe_user),
             "message_type": "clarify",
             "run_id": str(run_id),
         }
@@ -101,10 +110,55 @@ async def handle_chat_message(
         reply = build_greeting_reply(safe_user)
         return {"intent": "greeting", "message": reply, "message_type": "text", "run_id": str(run_id)}
 
+    if intent in (MessageIntent.PREFERENCE_STATEMENT, MessageIntent.PREFERENCE_CORRECTION):
+        parsed = parse_preference(text)
+        memory_update = None
+        if parsed:
+            memory_update = await asyncio.to_thread(
+                upsert_and_describe,
+                safe_user,
+                parsed.attribute_key,
+                parsed.attribute_value,
+            )
+            if intent == MessageIntent.PREFERENCE_CORRECTION:
+                reply = build_preference_updated(safe_user, parsed.attribute_value)
+            else:
+                reply = build_preference_ack(safe_user, parsed.attribute_value)
+        else:
+            reply = (
+                f"I heard a preference update, **{safe_user}**, but couldn't tell which one. "
+                "Try: *\"I like vegetarian\"* or *\"Please correct, I like non-vegetarian\"*."
+            )
+        response = {
+            "intent": intent.value,
+            "message": reply,
+            "message_type": "text",
+            "run_id": str(run_id),
+            "user_query": text,
+        }
+        if memory_update:
+            response["memory_update"] = memory_update
+        return response
+
+    if intent == MessageIntent.PREFERENCE_QUERY:
+        from memory.profile_store import get_profile
+
+        profile = await asyncio.to_thread(get_profile, safe_user)
+        reply = answer_what_food(profile) or answer_food_preference(profile)
+        if not reply:
+            reply = build_no_preference_reply(safe_user)
+        return {
+            "intent": "preference_query",
+            "message": reply,
+            "message_type": "text",
+            "run_id": str(run_id),
+            "user_query": text,
+        }
+
     if intent == MessageIntent.CLARIFY:
         return {
             "intent": "clarify",
-            "message": build_clarify_reply(),
+            "message": build_clarify_reply(safe_user),
             "message_type": "clarify",
             "run_id": str(run_id),
         }
@@ -113,12 +167,22 @@ async def handle_chat_message(
         if not has_plan:
             return {
                 "intent": "follow_up",
-                "message": build_no_plan_reply(),
+                "message": build_no_plan_reply(safe_user),
                 "message_type": "text",
                 "run_id": str(run_id),
             }
+        memory_update = None
         if is_explicit_correction(text):
-            await memory_manager.save_explicit_correction(safe_user, text)
+            parsed = parse_preference(text)
+            if parsed:
+                memory_update = await asyncio.to_thread(
+                    upsert_and_describe,
+                    safe_user,
+                    parsed.attribute_key,
+                    parsed.attribute_value,
+                )
+            else:
+                await memory_manager.save_explicit_correction(safe_user, text)
         last_plan = await asyncio.to_thread(load_user_plan, safe_user, thread_id)
         reply = await asyncio.to_thread(
             answer_follow_up,
@@ -140,6 +204,7 @@ async def handle_chat_message(
             "message_type": "follow_up",
             "run_id": str(run_id),
             "user_query": text,
+            **({"memory_update": memory_update} if memory_update else {}),
         }
 
     return {

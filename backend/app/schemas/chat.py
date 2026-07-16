@@ -26,13 +26,32 @@ class ChatRequest(BaseModel):
     run_id: UUID | None = None
 
 
+class MemoryUpdateInfo(BaseModel):
+    action: Literal["added", "updated"]
+    attribute_key: str
+    attribute_label: str
+    previous_value: str = ""
+    new_value: str
+    source: str = "profile"
+
+
 class ChatResponse(BaseModel):
-    intent: Literal["greeting", "follow_up", "new_plan", "clarify", "blocked"]
+    intent: Literal[
+        "greeting",
+        "follow_up",
+        "new_plan",
+        "clarify",
+        "blocked",
+        "preference_statement",
+        "preference_correction",
+        "preference_query",
+    ]
     message: str
     run_id: str | None = None
     message_type: Literal["welcome", "text", "plan", "follow_up", "clarify", "blocked"] = "text"
     agents: dict[str, Any] | None = None
     guardrail_reason: str | None = None
+    memory_update: MemoryUpdateInfo | None = None
 
 
 class PlanResponse(BaseModel):

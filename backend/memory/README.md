@@ -6,13 +6,25 @@ This document explains **how short-term and long-term memory work** in Northline
 
 ## The Big Picture in One Sentence
 
-> **Short-term memory remembers the current trip (session). Long-term memory remembers the user (forever).**
+> **Short-term memory remembers the current trip (session). Structured profile remembers confirmed user preferences (latest wins). Mem0 semantic search remembers other durable facts.**
 
 We deliberately **do not mix** their responsibilities.
 
 ---
 
-## Two Tiers at a Glance
+## Three Memory Layers
+
+| Layer | Technology | Key | Retrieval | Best for |
+|-------|------------|-----|-----------|----------|
+| **Trip state** | LangGraph `PostgresSaver` | `thread_id` | Deterministic load by thread | Full itinerary, agent outputs |
+| **User profile** | Postgres `user_profile` table | `user_id` + `attribute_key` | Deterministic `get_profile()` | Food preference, budget style — **latest value wins** |
+| **Semantic facts** | Mem0 Platform | `user_id` | Semantic search on query | Beaches, airlines, one-off durable facts |
+
+**Why profile + Mem0?** Food preferences must be stored immediately on *"I like vegetarian"* and updated on correction — Mem0's LLM extraction and semantic ranking are too probabilistic for that. Profile attributes are upserted in Postgres; Mem0 still handles richer unstructured memories.
+
+---
+
+## Two Tiers at a Glance (legacy summary)
 
 | | Short-Term Memory | Long-Term Memory |
 |---|-------------------|------------------|
@@ -29,16 +41,21 @@ We deliberately **do not mix** their responsibilities.
 
 Two tiers, two keys, two lifetimes — never mixed.
 
-| | Short-term (PostgresSaver) | Long-term (Mem0) |
-|---|---------------------------|------------------|
-| **Key** | `thread_id` | `user_id` |
-| **Stores** | Full trip state, agent outputs, itinerary | Durable preferences only |
-| **Read when** | Follow-ups, session restore | Start of every new trip (`retrieve_memory`) |
-| **Write when** | After every graph node (automatic) | End of every new trip (`store_memory`) |
+| | Short-term (PostgresSaver) | Profile (Postgres) | Long-term (Mem0) |
+|---|---------------------------|-------------------|------------------|
+| **Key** | `thread_id` | `user_id` + attribute | `user_id` |
+| **Stores** | Full trip state, agent outputs, itinerary | Structured prefs (`food_preference`, …) | Durable unstructured facts |
+| **Read when** | Follow-ups, session restore | Every prompt + preference queries | Start of every new trip (`retrieve_memory`) |
+| **Write when** | After every graph node (automatic) | Preference statement/correction in chat | End of every new trip (`store_memory`) |
+| **Retrieval** | Deterministic by thread | Deterministic by user | Probabilistic semantic search |
 
 ```mermaid
 flowchart TB
-    subgraph LT["Long-term — Mem0"]
+    subgraph Profile["Structured profile — Postgres user_profile"]
+        PS[profile_store upsert/get]
+    end
+
+    subgraph LT["Semantic — Mem0"]
         RM[retrieve_memory]
         SM[store_memory]
     end
@@ -51,6 +68,7 @@ flowchart TB
         CP[checkpoint after each node]
     end
 
+    PS -->|profile block always first| RM
     RM -->|memory_context| A
     A --> SM
     Graph --> CP
@@ -73,7 +91,43 @@ thread_id = rahul_trip_tokyo  ← optional separate trip session
 | `user_id` | Mem0 | `rahul` — same across all trips |
 | `thread_id` | PostgresSaver | `rahul_chat` — one conversation thread |
 
-**Interview answer:** *"Mem0 is keyed by user because preferences like 'I'm vegetarian' apply to every trip. PostgresSaver is keyed by thread because the full itinerary belongs to one planning session."*
+**Interview answer:** *"Mem0 is keyed by user because cross-trip facts apply to every session. PostgresSaver is keyed by thread because the full itinerary belongs to one planning session. Structured profile attributes (e.g. food preference) live in Postgres with upsert semantics so corrections always win — we don't rely on Mem0 ranking for that."*
+
+---
+
+## Preference Memory Flow
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Chat as chat_service
+    participant Router as chat_router
+    participant Profile as profile_store
+    participant M0 as Mem0
+    participant LLM
+
+    User->>Chat: I like vegetarian
+    Chat->>Router: preference_statement
+    Chat->>Profile: upsert food_preference=vegetarian
+    Chat-->>User: Acknowledged
+
+    User->>Chat: Please correct, non-vegetarian
+    Chat->>Profile: upsert food_preference=non-vegetarian
+    Chat-->>User: Updated
+
+    User->>Chat: What food do I like?
+    Chat->>Profile: get_profile
+    Chat-->>User: You like non-vegetarian food.
+```
+
+| User message | Handler | Storage |
+|--------------|---------|---------|
+| I like vegetarian | `PREFERENCE_STATEMENT` | `user_profile.food_preference = vegetarian` |
+| Please correct, I like non-vegetarian | `PREFERENCE_CORRECTION` | Overwrites to non-vegetarian |
+| What food do I like? | `PREFERENCE_QUERY` | Reads profile — no plan required |
+| Plan 5 days in Dubai | `NEW_PLAN` graph | Profile block + Mem0 in `memory_context` |
+
+Key modules: `memory/profile_store.py`, `memory/preference_parser.py`, `chat_router.py` intent detection.
 
 ---
 
@@ -91,13 +145,16 @@ Saved **automatically after every graph node** — no manual save code needed.
 
 **Not for:** cross-session user preferences.
 
-### Long-term (Mem0) — durable facts only
+### Long-term (Mem0) — durable unstructured facts
 
-**Store:**
-- "I am vegetarian."
-- "My budget is around $3000."
+**Store (via LLM extraction at end of trip):**
 - "I always prefer direct flights."
 - "I usually travel with my family."
+- Destination-specific likes discovered during planning
+
+**Store immediately (profile layer — not Mem0):**
+- "I am vegetarian." → `user_profile.food_preference`
+- Corrections → upsert overwrites previous value
 
 **Do NOT store:**
 - "Book a hotel in Paris" (one-off request)
@@ -114,18 +171,21 @@ Memory does **not** live inside each agent. It flows through **shared graph stat
 
 ```
 1. retrieve_memory node runs first
-2. Mem0 returns relevant facts for user_id + query
-3. Facts are formatted into state.memory_context
-4. Every agent reads memory_context in its prompt
+2. Profile block loaded from Postgres (deterministic, always included)
+3. Mem0 returns additional semantic facts for user_id + query
+4. Combined block written to state.memory_context
+5. Every agent reads memory_context in its prompt
 ```
 
 **Formatted prompt block injected into agents:**
 
 ```
+User Profile (latest confirmed preferences):
+- Food preference: non-vegetarian
+
 Known User Information
-- User is vegetarian
-- Budget is around $3000
 - Prefers direct flights
+- Budget is around $3000
 ```
 
 The planner naturally uses these when building the itinerary — hotels with vegetarian options, budget-aware suggestions, direct flight preference, etc.
@@ -226,11 +286,13 @@ sequenceDiagram
 
 | Event | What runs | Memory tier |
 |-------|-----------|-------------|
-| New trip starts | `retrieve_memory` node | Mem0 **read** |
+| User says "I like vegetarian" | `profile_store.upsert` | Profile **write** |
+| User asks "What food do I like?" | `get_profile` + direct reply | Profile **read** |
+| New trip starts | `retrieve_memory` node | Profile **read** + Mem0 **read** |
 | Each agent finishes | LangGraph checkpoint | Postgres **write** |
 | Itinerary complete | `store_memory` node | Mem0 **write** |
 | Follow-up question | `load_user_plan()` | Postgres **read** |
-| Follow-up question | `load_memory_context()` | Mem0 **read** (optional) |
+| Follow-up question | `load_memory_context()` | Profile **read** + Mem0 **read** |
 
 ---
 
@@ -333,8 +395,11 @@ Open https://app.mem0.ai → show stored facts for `rahul`.
 **Q: Why two memory systems instead of one?**  
 A: They solve different problems. Session state is large and changes every message — PostgresSaver handles that natively in LangGraph. User preferences are small, semantic, and cross-session — Mem0 is built for that.
 
-**Q: Why Mem0 instead of storing preferences in Postgres too?**  
-A: Mem0 provides semantic search, fact extraction, and deduplication out of the box. We avoid maintaining our own embedding pipeline and pgvector tables.
+**Q: Why Mem0 instead of storing everything in Postgres?**  
+A: Mem0 provides semantic search and LLM fact extraction for unstructured memories. Structured profile attributes (food preference) use Postgres upserts because they need immediate writes and latest-wins semantics that semantic search can't guarantee.
+
+**Q: What happens when profile and Mem0 disagree on diet?**  
+A: Profile wins. Stale dietary Mem0 facts are filtered out of `memory_context` when `food_preference` is set in the profile.
 
 **Q: What's the difference between `memory_context` and the checkpoint?**  
 A: `memory_context` is a formatted text block from Mem0 for agent prompts. The checkpoint is the full structured `TravelState` object persisted by PostgresSaver.

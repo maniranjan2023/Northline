@@ -87,6 +87,13 @@ def create_checkpointer() -> tuple[PostgresSaver, ConnectionPool]:
     except Exception as exc:
         raise RuntimeError(f"Eval job schema setup failed: {exc}") from exc
 
+    try:
+        from memory.profile_schema import setup_profile_schema
+
+        setup_profile_schema(pool)
+    except Exception as exc:
+        raise RuntimeError(f"User profile schema setup failed: {exc}") from exc
+
     return checkpointer, pool
 
 

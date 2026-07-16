@@ -14,6 +14,12 @@ from langchain_core.messages import HumanMessage
 
 from memory.config import MemoryConfig
 from memory.extractor import MemoryExtractor
+from memory.profile_store import (
+    filter_semantic_memories,
+    format_profile_block,
+    get_profile,
+    merge_memory_context,
+)
 from memory.provider.base import BaseMemoryProvider, MemoryItem
 from memory.provider.mem0_provider import Mem0Provider
 from memory.retriever import MemoryRetriever
@@ -101,9 +107,23 @@ class MemoryManager:
         return await self._retriever.retrieve(safe_user, query)
 
     async def load_memory_context(self, user_id: str, query: str) -> str:
-        """Formatted memory block for prompts (used by follow-up handler)."""
-        items = await self.retrieve_memories(user_id, query)
-        return self._retriever.format_for_prompt(items)
+        """Formatted memory block for prompts (profile + Mem0 semantic search)."""
+        safe_user = self.sanitize_user_id(user_id)
+        profile = get_profile(safe_user)
+        profile_block = format_profile_block(profile)
+
+        items = await self.retrieve_memories(safe_user, query)
+        if profile:
+            filtered_texts = set(filter_semantic_memories([item.memory for item in items], profile))
+            items = [item for item in items if item.memory in filtered_texts]
+
+        semantic_block = self._retriever.format_for_prompt(items)
+        return merge_memory_context(profile_block, semantic_block)
+
+    async def load_profile_context(self, user_id: str) -> str:
+        """Structured profile block only — no Mem0 search."""
+        safe_user = self.sanitize_user_id(user_id)
+        return format_profile_block(get_profile(safe_user))
 
     def format_memories_for_prompt(self, items: list[MemoryItem]) -> str:
         return self._retriever.format_for_prompt(items)
