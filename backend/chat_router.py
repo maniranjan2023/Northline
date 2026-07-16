@@ -178,8 +178,10 @@ def classify_message(user_query: str, has_previous_plan: bool) -> MessageIntent:
         if re.search(pattern, text):
             return MessageIntent.NEW_PLAN
 
-    # Short vague message after a plan exists -> likely follow-up.
+    # Short vague message after a plan exists -> likely follow-up (unless sharing a preference).
     if has_previous_plan and len(text.split()) <= 12:
+        if is_preference_statement(text) or parse_preference(text):
+            return MessageIntent.PREFERENCE_STATEMENT
         return MessageIntent.FOLLOW_UP
 
     # Unclear request — ask for details instead of running all agents.

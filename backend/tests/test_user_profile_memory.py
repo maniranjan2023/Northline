@@ -326,3 +326,66 @@ def test_corrupted_profile_value_ignored():
     profile = {"food_preference": "in food"}
     reply = answer_preference_query(profile, "what is my food preference?")
     assert reply is None
+
+
+def test_parse_loves_vegeterian_typo():
+    parsed = parse_preference("i loves vegeterian")
+    assert parsed is not None
+    assert parsed.attribute_key == "food_preference"
+    assert parsed.attribute_value == "vegetarian"
+
+
+def test_loves_vegeterian_routes_as_statement_with_plan():
+    intent = classify_message("i loves vegeterian", has_previous_plan=True)
+    assert intent == MessageIntent.PREFERENCE_STATEMENT
+
+
+def test_love_vegetarian_food_parses():
+    parsed = parse_preference("I love vegetarian food")
+    assert parsed is not None
+    assert parsed.attribute_key == "food_preference"
+    assert parsed.attribute_value == "vegetarian"
+
+
+@pytest.mark.asyncio
+async def test_user57_flow_save_then_query(monkeypatch):
+    """Regression: preference after a plan exists must persist and answer deterministically."""
+    from app.services.chat_service import handle_chat_message
+
+    memory_manager = MemoryManager(llm=None, provider=_MockProvider())
+    username = "user57"
+    thread_id = f"{username}_chat"
+
+    monkeypatch.setattr(
+        "app.services.chat_service.user_has_stored_plan",
+        lambda *args, **kwargs: True,
+    )
+
+    save_result = await handle_chat_message(
+        username=username,
+        thread_id=thread_id,
+        message="i loves vegeterian",
+        travel_graph=None,
+        memory_manager=memory_manager,
+        lesson_book=None,
+    )
+
+    assert save_result["intent"] == "preference_statement"
+    assert "vegetarian" in save_result["message"].lower()
+    profile = get_profile(username)
+    assert profile.get("food_preference") == "vegetarian"
+    if save_result.get("memory_update"):
+        assert save_result["memory_update"]["action"] in {"added", "updated"}
+
+    query_result = await handle_chat_message(
+        username=username,
+        thread_id=thread_id,
+        message="what is my food preference?",
+        travel_graph=None,
+        memory_manager=memory_manager,
+        lesson_book=None,
+    )
+
+    assert query_result["intent"] == "preference_query"
+    assert "vegetarian" in query_result["message"].lower()
+    assert "don't have" not in query_result["message"].lower()

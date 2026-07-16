@@ -155,8 +155,8 @@ def _parse_dietary_statement(text: str) -> ParsedPreference | None:
         return None
 
     patterns = [
-        r"\b(?:please\s+correct(?:\s+that)?(?:,|:)?\s*)?(?:i\s+)?(?:like|am|prefer|want|need|eat)\s+(?:to\s+be\s+)?(?P<food>vegetarian|vegeterian|vegatarian|vegan|halal|non[-\s]?vegetarian|non[-\s]?veg)\b",
-        r"\b(?:actually|correction|correct(?:ion)?)\b.*\b(?:i\s+)?(?:like|am|prefer)\s+(?P<food>vegetarian|vegeterian|vegan|halal|non[-\s]?vegetarian|non[-\s]?veg)\b",
+        r"\b(?:please\s+correct(?:\s+that)?(?:,|:)?\s*)?(?:i\s+)?(?:like|loves?|loved|am|prefer|enjoy|want|need|eat)\s+(?:to\s+be\s+)?(?P<food>vegetarian|vegeterian|vegatarian|vegan|halal|non[-\s]?vegetarian|non[-\s]?veg)\b",
+        r"\b(?:actually|correction|correct(?:ion)?)\b.*\b(?:i\s+)?(?:like|loves?|am|prefer)\s+(?P<food>vegetarian|vegeterian|vegan|halal|non[-\s]?vegetarian|non[-\s]?veg)\b",
         r"\b(?:i\s+)?(?:am|i'm)\s+a\s+(?P<food>vegetarian|vegeterian|vegan|halal|non[-\s]?vegetarian)\b",
     ]
     for pattern in patterns:
@@ -221,7 +221,7 @@ def parse_preference_statement(text: str) -> ParsedPreference | None:
             "play",
         ),
         (
-            r"\b(?:please\s+correct(?:\s+that)?(?:,|:)?\s*)?(?:i\s+)?(?:like|love|prefer|enjoy|want)\s+(?P<value>.+)$",
+            r"\b(?:please\s+correct(?:\s+that)?(?:,|:)?\s*)?(?:i\s+)?(?:like|loves?|loved|prefer|enjoy|want)\s+(?P<value>.+)$",
             "generic_like",
         ),
         (
@@ -274,7 +274,7 @@ def looks_like_preference_statement(text: str) -> bool:
     normalized = raw.lower()
     patterns = [
         r"\bmy favorite\b",
-        r"\b(?:i\s+)?(?:like|love|prefer|enjoy)\s+(?!to ask\b)",
+        r"\b(?:i\s+)?(?:like|loves?|loved|prefer|enjoy)\s+(?!to ask\b)",
         r"\b(?:i\s+)?(?:want|wish|would like)\s+to\s+(?:play|do|try)\b",
         r"\b(?:i\s+)?(?:am|i'm|i m)\s+(?:a|an)\s+(?:vegetarian|vegan|halal|non)",
         r"\bremember that\b",

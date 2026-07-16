@@ -53,6 +53,46 @@ AGENTS = [
 ]
 
 
+async def _save_preference_turn(
+    *,
+    safe_user: str,
+    text: str,
+    memory_manager,
+    intent: MessageIntent,
+    run_id: UUID,
+) -> dict[str, Any]:
+    """Parse, persist, and build a response for a preference statement or correction."""
+    parsed = await memory_manager.parse_user_preference(text)
+    memory_update = None
+    if parsed:
+        memory_update = await asyncio.to_thread(
+            upsert_and_describe,
+            safe_user,
+            parsed.attribute_key,
+            parsed.attribute_value,
+        )
+        label = format_attribute_label(parsed.attribute_key)
+        if intent == MessageIntent.PREFERENCE_CORRECTION:
+            reply = build_preference_updated(safe_user, label, parsed.attribute_value)
+        else:
+            reply = build_preference_ack(safe_user, label, parsed.attribute_value)
+    else:
+        reply = (
+            f"I heard a preference, **{safe_user}**, but couldn't tell what to save. "
+            "Try: *\"My favorite sport is cricket\"* or *\"I like vegetarian\"*."
+        )
+    response: dict[str, Any] = {
+        "intent": intent.value,
+        "message": reply,
+        "message_type": "text",
+        "run_id": str(run_id),
+        "user_query": text,
+    }
+    if memory_update:
+        response["memory_update"] = memory_update
+    return response
+
+
 def create_session(username: str, memory_manager) -> dict[str, Any]:
     """Create a session quickly — plan restore is handled separately via GET /plan."""
     safe_user = memory_manager.sanitize_user_id(username)
@@ -125,35 +165,13 @@ async def handle_chat_message(
         return {"intent": "greeting", "message": reply, "message_type": "text", "run_id": str(run_id)}
 
     if intent in (MessageIntent.PREFERENCE_STATEMENT, MessageIntent.PREFERENCE_CORRECTION):
-        parsed = await memory_manager.parse_user_preference(text)
-        memory_update = None
-        if parsed:
-            memory_update = await asyncio.to_thread(
-                upsert_and_describe,
-                safe_user,
-                parsed.attribute_key,
-                parsed.attribute_value,
-            )
-            label = format_attribute_label(parsed.attribute_key)
-            if intent == MessageIntent.PREFERENCE_CORRECTION:
-                reply = build_preference_updated(safe_user, label, parsed.attribute_value)
-            else:
-                reply = build_preference_ack(safe_user, label, parsed.attribute_value)
-        else:
-            reply = (
-                f"I heard a preference, **{safe_user}**, but couldn't tell what to save. "
-                "Try: *\"My favorite sport is cricket\"* or *\"I like vegetarian\"*."
-            )
-        response = {
-            "intent": intent.value,
-            "message": reply,
-            "message_type": "text",
-            "run_id": str(run_id),
-            "user_query": text,
-        }
-        if memory_update:
-            response["memory_update"] = memory_update
-        return response
+        return await _save_preference_turn(
+            safe_user=safe_user,
+            text=text,
+            memory_manager=memory_manager,
+            intent=intent,
+            run_id=run_id,
+        )
 
     if intent == MessageIntent.PREFERENCE_QUERY:
         from memory.profile_store import get_profile
@@ -181,7 +199,7 @@ async def handle_chat_message(
         }
 
     if intent == MessageIntent.FOLLOW_UP:
-        from memory.preference_parser import looks_like_preference_query
+        from memory.preference_parser import looks_like_preference_query, looks_like_preference_statement
 
         if looks_like_preference_query(text):
             intent = MessageIntent.PREFERENCE_QUERY
@@ -200,6 +218,15 @@ async def handle_chat_message(
                 "run_id": str(run_id),
                 "user_query": text,
             }
+
+        if looks_like_preference_statement(text) or parse_preference(text):
+            return await _save_preference_turn(
+                safe_user=safe_user,
+                text=text,
+                memory_manager=memory_manager,
+                intent=MessageIntent.PREFERENCE_STATEMENT,
+                run_id=run_id,
+            )
 
         if not has_plan:
             return {
