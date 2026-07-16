@@ -1,4 +1,4 @@
-"""Smoke tests for eval runner + Inngest wiring."""
+"""Smoke tests for eval runner + Inngest FastAPI serve wiring."""
 
 from __future__ import annotations
 
@@ -36,5 +36,23 @@ def test_capabilities_shape():
     assert "eval_deps_installed" in caps
     assert "inngest_configured" in caps
     assert caps["inngest_configured"] is inngest_configured()
+    assert caps["worker_mode"] == "inngest_serve"
     assert "ci" in caps["suites"]
     assert caps["suites"]["ci"]["schedule"]["timezone"] == "Asia/Kolkata"
+
+
+def test_web_main_serves_inngest_http():
+    from app.main import app
+
+    paths = [getattr(r, "path", "") for r in app.routes]
+    assert "/api/admin/evals/run" in paths
+    assert "/api/inngest" in paths
+
+
+def test_empty_progress_skips_other_suites():
+    from app.services.eval_runner_service import _empty_progress
+
+    progress = _empty_progress("ci")
+    assert progress["ci"]["status"] == "queued"
+    assert progress["single_turn"]["status"] == "skipped"
+    assert progress["multi_turn"]["status"] == "skipped"

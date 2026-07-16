@@ -50,7 +50,8 @@ app.include_router(chat.router, prefix="/api")
 app.include_router(feedback.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
 
-# Inngest serve endpoint at /api/inngest (manual + cron eval jobs)
+# Inngest serve — sync with Inngest Cloud at /api/inngest (official FastAPI pattern).
+# Manual + cron eval jobs execute here when Inngest invokes the endpoint.
 import inngest.fast_api  # noqa: E402
 from app.inngest_client import inngest_client  # noqa: E402
 from app.inngest_fns import INNGEST_FUNCTIONS  # noqa: E402

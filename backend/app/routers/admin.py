@@ -110,6 +110,7 @@ def eval_results() -> EvalResultsResponse:
         multi_turn=_optional_suite_results(payload.get("multi_turn")),
         eval_deps_installed=payload.get("eval_deps_installed", False),
         inngest_configured=payload.get("inngest_configured", False),
+        worker_mode=payload.get("worker_mode") or "inngest_serve",
         active_job_id=payload.get("active_job_id"),
         schedules=payload.get("schedules") or {},
     )
@@ -117,7 +118,7 @@ def eval_results() -> EvalResultsResponse:
 
 @router.post("/evals/run", response_model=EvalRunStartResponse)
 def eval_run(payload: EvalRunRequest = Body(default_factory=EvalRunRequest)) -> EvalRunStartResponse:
-    """Manual trigger. Uses Inngest when configured; otherwise a local background thread."""
+    """Manual trigger: enqueue Postgres job + Inngest event (runs via /api/inngest)."""
     try:
         result = start_eval_job(payload.suite)
         return EvalRunStartResponse(**result)
@@ -127,9 +128,17 @@ def eval_run(payload: EvalRunRequest = Body(default_factory=EvalRunRequest)) -> 
         raise HTTPException(500, f"Failed to queue eval run: {exc}") from exc
 
 
+def _normalize_job(job: dict) -> dict:
+    progress = dict(job.get("progress") or {})
+    for key in ("ci", "single_turn", "multi_turn"):
+        progress.setdefault(key, {"status": "skipped"})
+    job = {**job, "progress": progress}
+    return job
+
+
 @router.get("/evals/jobs", response_model=list[EvalJobResponse])
 def eval_jobs(limit: int = 10) -> list[EvalJobResponse]:
-    return [EvalJobResponse(**job) for job in list_recent_jobs(limit=limit)]
+    return [EvalJobResponse(**_normalize_job(job)) for job in list_recent_jobs(limit=limit)]
 
 
 @router.get("/evals/jobs/{job_id}", response_model=EvalJobResponse)
@@ -137,4 +146,4 @@ def eval_job_status(job_id: str) -> EvalJobResponse:
     job = get_job(job_id)
     if not job:
         raise HTTPException(404, "Eval job not found.")
-    return EvalJobResponse(**job)
+    return EvalJobResponse(**_normalize_job(job))

@@ -977,7 +977,7 @@ Set `ADMIN_API_KEY` in `backend/.env` and matching `VITE_ADMIN_API_KEY` in `fron
 
 ```powershell
 cd backend
-python main.py
+    python main.py
 ```
 
 ---

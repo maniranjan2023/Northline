@@ -13,51 +13,54 @@ python run.py
 
 1. **Root Directory** = `Mcp-proj/backend` (or `backend` if that is the repo root)
 2. **Python Version** = `3.12` (also set via `runtime.txt` → `python-3.12.8`)
-3. **Build Command** (main deps **plus** AviationStack MCP):
+3. **Build command** (main deps + AviationStack MCP + eval packages):
 
 ```bash
-pip install -r requirements.txt && pip install ./aviationstack-mcp-main
+pip install -r requirements.txt && cd aviationstack-mcp-main && pip install -e . && cd .. && pip install -r requirements-evals.txt
 ```
 
-To enable **Admin → Evals → Run** on Render, append evals packages (install last, avoids resolution-too-deep):
+4. **Start command** = `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
 
-```bash
-pip install -r requirements.txt && pip install ./aviationstack-mcp-main && pip install -r requirements-evals.txt
+5. **Frontend** on Vercel — set `VITE_API_BASE` to your Render URL.
+
+On startup the API warms MCP tools (Tavily, AviationStack, Weather).
+
+### Inngest (single Render web service)
+
+Official Python pattern: `inngest.fast_api.serve` at **`/api/inngest`**.
+
+After deploy, sync in [Inngest Cloud](https://app.inngest.com):
+
+```
+https://<your-render-app>.onrender.com/api/inngest
 ```
 
-4. **Start Command** = `uvicorn app.main:app --host 0.0.0.0 --port $PORT`
-
-Do **not** use `requirements-dev.txt` on Render for that optional step — it re-includes all production deps and can trigger `resolution-too-deep`. Use `requirements-evals.txt` instead.
-
-| What | Needed on Render? | Why |
-|------|-------------------|-----|
-| `pip install -r requirements.txt` | **Yes** | FastAPI, LangGraph, Mem0, NeMo, etc. |
-| `pip install ./aviationstack-mcp-main` | **Yes** | Flight agent runs `python -m aviationstack_mcp mcp run` |
-| Weather MCP | **No separate install** | `custom_weather_mcp_server.py` is started from the same env |
-| Tavily MCP | **No install** | Remote HTTP MCP (only needs `TAVILY_API_KEY`) |
-
-On startup the API automatically warms MCP tools (Tavily, **AviationStack**, Weather). You do **not** need a third terminal for AviationStack.
-
-### Inngest (scheduled + manual evals)
-
-Endpoint: `https://<your-backend>/api/inngest`
-
-| Env var | Where | Purpose |
-|---------|--------|---------|
-| `INNGEST_EVENT_KEY` | Render + local Cloud | Send events (manual Admin trigger) |
-| `INNGEST_SIGNING_KEY` | Render + local Cloud | Secure sync with Inngest Cloud |
-| `INNGEST_DEV=1` | Local only | Talk to Inngest Dev Server — **never set on Render** |
+| Env var | Purpose |
+|---------|---------|
+| `INNGEST_EVENT_KEY` | Send events (Admin manual trigger) |
+| `INNGEST_SIGNING_KEY` | Secure `/api/inngest` sync |
+| `INNGEST_DEV=1` | Local Dev Server only — **never on Render** |
 
 Daily crons (Asia/Kolkata):
 
-| Suite | Time | Trigger event (manual) |
-|-------|------|------------------------|
+| Suite | Time | Event (manual) |
+|-------|------|----------------|
 | CI (3) | 12:00 | `evals/ci.run` |
 | Single-turn (5) | 18:00 | `evals/single_turn.run` |
 | Multi-turn (5) | 22:00 | `evals/multi_turn.run` |
-| All 13 | — | `evals/all.run` (manual only) |
+| All 13 | — | `evals/all.run` |
 
-After deploy: add the app URL in Inngest Cloud → sync `https://northline-y6rd.onrender.com/api/inngest`.
+**Local:**
+
+```powershell
+# Terminal A — API + Inngest serve
+$env:INNGEST_DEV=1; uvicorn app.main:app --reload --port 8000
+
+# Terminal B — Inngest Dev Server
+inngest dev -u http://localhost:8000/api/inngest
+```
+
+Admin → Evals polls Postgres (`eval_jobs`) for live progress.
 
 **One-time AviationStack MCP setup** (inside backend):
 

@@ -165,6 +165,7 @@ export interface EvalResultsResponse {
   multi_turn: EvalSuiteResults | null
   eval_deps_installed: boolean
   inngest_configured?: boolean
+  worker_mode?: string
   active_job_id?: string | null
   schedules?: Record<string, { cron: string; label: string; timezone: string }>
 }
@@ -203,6 +204,7 @@ export interface EvalCapabilities {
   deepeval_available: boolean
   pytest_available: boolean
   inngest_configured?: boolean
+  worker_mode?: string
   active_job_id?: string | null
   schedules?: Record<string, { cron: string; label: string; timezone: string }>
   suites: Record<

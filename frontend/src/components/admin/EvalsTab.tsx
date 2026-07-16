@@ -187,6 +187,9 @@ export function EvalsTab({ adminKey }: Props) {
   const [starting, setStarting] = useState<EvalSuiteRequest | null>(null)
 
   const isRunning = activeJob?.status === 'queued' || activeJob?.status === 'running'
+  const canEnqueue = Boolean(
+    capabilities?.inngest_configured && capabilities?.eval_deps_installed,
+  )
 
   const loadData = useCallback(async () => {
     setLoading(true)
@@ -201,8 +204,6 @@ export function EvalsTab({ adminKey }: Props) {
       if (res.active_job_id) {
         const job = await getEvalJob(adminKey, res.active_job_id)
         setActiveJob(job)
-      } else {
-        setActiveJob(null)
       }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Failed to load eval data')
@@ -232,26 +233,20 @@ export function EvalsTab({ adminKey }: Props) {
           }
         }
       } catch {
-        // keep polling quietly
+        // keep polling quietly — worker may still be starting
       }
     }, 3000)
 
     return () => clearInterval(interval)
-  }, [activeJob, adminKey, isRunning])
+  }, [activeJob?.job_id, activeJob?.status, adminKey, isRunning])
 
   async function handleRun(suite: EvalSuiteRequest) {
     setStarting(suite)
     try {
       const started = await startEvalRun(adminKey, suite)
       toast.message(started.message)
-      // Local jobs expose a pollable job file; Inngest queues may not.
-      try {
-        const job = await getEvalJob(adminKey, started.job_id)
-        setActiveJob(job)
-      } catch {
-        setActiveJob(null)
-        await loadData()
-      }
+      const job = await getEvalJob(adminKey, started.job_id)
+      setActiveJob(job)
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not start eval run')
     } finally {
@@ -275,8 +270,9 @@ export function EvalsTab({ adminKey }: Props) {
           <div className="flex max-w-2xl flex-col gap-2">
             <h2 className="text-lg font-semibold tracking-tight">Evaluation suite</h2>
             <p className="text-sm text-muted-foreground">
-              Manual triggers from this page, plus daily Inngest schedules (IST): CI at 12:00,
-              single-turn at 18:00, multi-turn at 22:00. Results refresh into the tabs below.
+              Manual triggers enqueue a Postgres job and an Inngest event. Inngest invokes{' '}
+              <code className="text-xs">/api/inngest</code> on this web service to run evals.
+              Daily schedules (IST): CI 12:00, single-turn 18:00, multi-turn 22:00.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => loadData()} disabled={loading || isRunning}>
@@ -286,39 +282,28 @@ export function EvalsTab({ adminKey }: Props) {
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
+          <Badge variant={capabilities?.inngest_configured ? 'secondary' : 'outline'}>
+            Inngest {capabilities?.inngest_configured ? 'ready' : 'not configured'}
+          </Badge>
+          <Badge variant="outline">
+            Mode {capabilities?.worker_mode ?? 'inngest_serve'}
+          </Badge>
           <Badge variant={capabilities?.eval_deps_installed ? 'secondary' : 'outline'}>
             Eval deps {capabilities?.eval_deps_installed ? 'ready' : 'missing'}
           </Badge>
-          <Badge variant={capabilities?.inngest_configured ? 'secondary' : 'outline'}>
-            Inngest {capabilities?.inngest_configured ? 'connected' : 'not configured'}
-          </Badge>
         </div>
 
-        {!capabilities?.eval_deps_installed && (
+        {!canEnqueue && (
           <Alert className="mt-4">
             <AlertCircle data-icon="inline-start" />
-            <AlertTitle>Evals Run is not enabled on this server</AlertTitle>
+            <AlertTitle>Cannot run evals yet</AlertTitle>
             <AlertDescription className="flex flex-col gap-2">
               <span>
-                Chat and the rest of Admin still work. To enable the Run buttons, install{' '}
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">pytest</code> and{' '}
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">deepeval</code> on the backend
-                and redeploy.
-              </span>
-              <span>
-                <strong>Local:</strong>{' '}
-                <code className="rounded bg-muted px-1 py-0.5 text-xs">pip install -r requirements-dev.txt</code>
-              </span>
-              <span>
-                <strong>Render build:</strong>{' '}
-                <code className="rounded bg-muted px-1 py-0.5 text-xs break-all">
-                  pip install -r requirements.txt && pip install ./aviationstack-mcp-main && pip install -r
-                  requirements-evals.txt
-                </code>
-              </span>
-              <span className="text-muted-foreground">
-                Live suites (single-turn / multi-turn) can take 30–60 minutes and need your API keys. Prefer
-                starting with <strong>Run CI only</strong> first.
+                On Render, set <code className="rounded bg-muted px-1 py-0.5 text-xs">INNGEST_EVENT_KEY</code>{' '}
+                and <code className="rounded bg-muted px-1 py-0.5 text-xs">INNGEST_SIGNING_KEY</code>, install{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-xs">requirements-evals.txt</code>, and sync{' '}
+                <code className="rounded bg-muted px-1 py-0.5 text-xs">https://your-app.onrender.com/api/inngest</code>{' '}
+                in Inngest Cloud.
               </span>
             </AlertDescription>
           </Alert>
@@ -329,8 +314,7 @@ export function EvalsTab({ adminKey }: Props) {
         <CardHeader className="border-b bg-muted/20">
           <CardTitle className="text-base">Scheduled jobs (Inngest)</CardTitle>
           <CardDescription>
-            Cron runs automatically once Inngest is synced to{' '}
-            <code className="text-xs">/api/inngest</code> with your event + signing keys.
+            Crons run after you sync <code className="text-xs">/api/inngest</code> with Inngest Cloud.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 p-4 md:grid-cols-3">
@@ -355,9 +339,9 @@ export function EvalsTab({ adminKey }: Props) {
           <CardTitle className="text-base">Manual run controls</CardTitle>
           <CardDescription>
             {capabilities?.inngest_configured
-              ? 'Clicks send an Inngest event (same functions as the cron schedules).'
-              : 'Inngest keys not set — runs use a local background thread instead.'}{' '}
-            Live suites need API keys, MCP, and database.
+              ? 'Clicks create a Postgres job and send an Inngest event. Inngest calls /api/inngest to run the suite.'
+              : 'Set Inngest keys and sync /api/inngest in Inngest Cloud.'}{' '}
+            Live suites need API keys, MCP, and database on this service.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -373,11 +357,7 @@ export function EvalsTab({ adminKey }: Props) {
               <Button
                 size="sm"
                 onClick={() => handleRun(option.suite)}
-                disabled={
-                  !capabilities?.eval_deps_installed ||
-                  isRunning ||
-                  starting !== null
-                }
+                disabled={!canEnqueue || isRunning || starting !== null}
               >
                 {starting === option.suite ? (
                   <Loader2 data-icon="inline-start" className="animate-spin" />

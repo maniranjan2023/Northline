@@ -57,8 +57,8 @@ class EvalResultRow(BaseModel):
 
 
 class EvalSuiteResults(BaseModel):
-    suite: str
-    suite_label: str
+    suite: str = ""
+    suite_label: str = ""
     run_at: str | None = None
     passed: int = 0
     total: int = 0
@@ -72,6 +72,7 @@ class EvalResultsResponse(BaseModel):
     multi_turn: EvalSuiteResults | None = None
     eval_deps_installed: bool = False
     inngest_configured: bool = False
+    worker_mode: str = "inngest_serve"
     active_job_id: str | None = None
     schedules: dict[str, Any] = Field(default_factory=dict)
 
@@ -88,6 +89,7 @@ class EvalCapabilities(BaseModel):
     deepeval_available: bool
     pytest_available: bool
     inngest_configured: bool = False
+    worker_mode: str = "inngest_serve"
     active_job_id: str | None = None
     schedules: dict[str, Any] = Field(default_factory=dict)
     suites: dict[str, Any] = Field(default_factory=dict)

@@ -80,6 +80,13 @@ def create_checkpointer() -> tuple[PostgresSaver, ConnectionPool]:
     except Exception as exc:
         raise RuntimeError(f"Lesson book schema setup failed: {exc}") from exc
 
+    try:
+        from evals.job_schema import setup_eval_job_schema
+
+        setup_eval_job_schema(pool)
+    except Exception as exc:
+        raise RuntimeError(f"Eval job schema setup failed: {exc}") from exc
+
     return checkpointer, pool
 
 

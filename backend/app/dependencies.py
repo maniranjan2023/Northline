@@ -49,6 +49,13 @@ def init_app_resources() -> None:
         lesson_book = LessonBookService.from_pool(db_pool)
         travel_graph = build_travel_graph(llm, memory_manager, checkpointer, lesson_book)
 
+        try:
+            from app.services.eval_job_store import bind_pool
+
+            bind_pool(db_pool)
+        except Exception as exc:
+            logger.warning("Eval job store bind failed: %s", exc)
+
         _resources = {
             "llm": llm,
             "checkpointer": checkpointer,
