@@ -164,7 +164,9 @@ export interface EvalResultsResponse {
   single_turn: EvalSuiteResults | null
   multi_turn: EvalSuiteResults | null
   eval_deps_installed: boolean
+  inngest_configured?: boolean
   active_job_id?: string | null
+  schedules?: Record<string, { cron: string; label: string; timezone: string }>
 }
 
 export interface EvalSuiteProgress {
@@ -200,13 +202,16 @@ export interface EvalCapabilities {
   eval_deps_installed: boolean
   deepeval_available: boolean
   pytest_available: boolean
+  inngest_configured?: boolean
   active_job_id?: string | null
+  schedules?: Record<string, { cron: string; label: string; timezone: string }>
   suites: Record<
     EvalSuiteKey,
     {
       label: string
       metric_count: number
       requires_live: boolean
+      schedule?: { cron: string; label: string; timezone: string }
     }
   >
 }

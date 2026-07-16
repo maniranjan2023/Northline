@@ -31,3 +31,6 @@ mem0ai>=0.1.96,<0.2.0
 
 # Guardrails — use 0.22+ (no langchain<0.4 conflict)
 nemoguardrails>=0.22.0,<0.24.0
+
+# Background / scheduled eval jobs (Admin manual trigger + daily crons)
+inngest>=0.4.22,<0.5.0

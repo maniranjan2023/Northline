@@ -49,3 +49,10 @@ app.include_router(health.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
 app.include_router(feedback.router, prefix="/api")
 app.include_router(admin.router, prefix="/api")
+
+# Inngest serve endpoint at /api/inngest (manual + cron eval jobs)
+import inngest.fast_api  # noqa: E402
+from app.inngest_client import inngest_client  # noqa: E402
+from app.inngest_fns import INNGEST_FUNCTIONS  # noqa: E402
+
+inngest.fast_api.serve(app, inngest_client, INNGEST_FUNCTIONS)

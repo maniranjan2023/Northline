@@ -60,10 +60,10 @@ const SUITE_TABS: { id: EvalViewTab; label: string; description: string; metrics
 ]
 
 const RUN_OPTIONS: { suite: EvalSuiteRequest; label: string; hint: string }[] = [
-  { suite: 'all', label: 'Run all 13 metrics', hint: 'CI → Single-turn → Multi-turn (~30–60 min live)' },
-  { suite: 'ci', label: 'Run CI only', hint: 'Fast custom checks (~2 min)' },
-  { suite: 'single_turn', label: 'Run single-turn', hint: '5 DeepEval agent metrics (live graph)' },
-  { suite: 'multi_turn', label: 'Run multi-turn', hint: '5 DeepEval conversation metrics (live graph)' },
+  { suite: 'all', label: 'Run all 13 metrics', hint: 'Manual: CI → Single-turn → Multi-turn' },
+  { suite: 'ci', label: 'Run CI only', hint: 'Manual · also scheduled daily 12:00 IST' },
+  { suite: 'single_turn', label: 'Run single-turn', hint: 'Manual · also scheduled daily 18:00 IST' },
+  { suite: 'multi_turn', label: 'Run multi-turn', hint: 'Manual · also scheduled daily 22:00 IST' },
 ]
 
 interface Props {
@@ -243,9 +243,15 @@ export function EvalsTab({ adminKey }: Props) {
     setStarting(suite)
     try {
       const started = await startEvalRun(adminKey, suite)
-      const job = await getEvalJob(adminKey, started.job_id)
-      setActiveJob(job)
       toast.message(started.message)
+      // Local jobs expose a pollable job file; Inngest queues may not.
+      try {
+        const job = await getEvalJob(adminKey, started.job_id)
+        setActiveJob(job)
+      } catch {
+        setActiveJob(null)
+        await loadData()
+      }
     } catch (err) {
       toast.error(err instanceof Error ? err.message : 'Could not start eval run')
     } finally {
@@ -269,14 +275,23 @@ export function EvalsTab({ adminKey }: Props) {
           <div className="flex max-w-2xl flex-col gap-2">
             <h2 className="text-lg font-semibold tracking-tight">Evaluation suite</h2>
             <p className="text-sm text-muted-foreground">
-              Run all 13 metrics from the admin console: 3 CI checks plus 10 DeepEval metrics across
-              single-turn and multi-turn suites. Results are written to JSON for this dashboard.
+              Manual triggers from this page, plus daily Inngest schedules (IST): CI at 12:00,
+              single-turn at 18:00, multi-turn at 22:00. Results refresh into the tabs below.
             </p>
           </div>
           <Button variant="outline" size="sm" onClick={() => loadData()} disabled={loading || isRunning}>
             <RefreshCw data-icon="inline-start" className={cn(loading && 'animate-spin')} />
             Refresh
           </Button>
+        </div>
+
+        <div className="mt-4 flex flex-wrap gap-2">
+          <Badge variant={capabilities?.eval_deps_installed ? 'secondary' : 'outline'}>
+            Eval deps {capabilities?.eval_deps_installed ? 'ready' : 'missing'}
+          </Badge>
+          <Badge variant={capabilities?.inngest_configured ? 'secondary' : 'outline'}>
+            Inngest {capabilities?.inngest_configured ? 'connected' : 'not configured'}
+          </Badge>
         </div>
 
         {!capabilities?.eval_deps_installed && (
@@ -312,9 +327,37 @@ export function EvalsTab({ adminKey }: Props) {
 
       <Card className="shadow-sm">
         <CardHeader className="border-b bg-muted/20">
-          <CardTitle className="text-base">Run controls</CardTitle>
+          <CardTitle className="text-base">Scheduled jobs (Inngest)</CardTitle>
           <CardDescription>
-            Live suites need <code className="text-xs">EVAL_LIVE=1</code>, API keys, MCP, and database.
+            Cron runs automatically once Inngest is synced to{' '}
+            <code className="text-xs">/api/inngest</code> with your event + signing keys.
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="grid gap-3 p-4 md:grid-cols-3">
+          {SUITE_TABS.map((tab) => {
+            const schedule =
+              capabilities?.suites?.[tab.id]?.schedule ??
+              capabilities?.schedules?.[tab.id] ??
+              results?.schedules?.[tab.id]
+            return (
+              <div key={tab.id} className="flex flex-col gap-1 rounded-lg border p-4">
+                <p className="text-sm font-medium">{tab.label}</p>
+                <p className="text-xs text-muted-foreground">{tab.description}</p>
+                <p className="mt-2 text-sm font-mono">{schedule?.label ?? '—'}</p>
+              </div>
+            )
+          })}
+        </CardContent>
+      </Card>
+
+      <Card className="shadow-sm">
+        <CardHeader className="border-b bg-muted/20">
+          <CardTitle className="text-base">Manual run controls</CardTitle>
+          <CardDescription>
+            {capabilities?.inngest_configured
+              ? 'Clicks send an Inngest event (same functions as the cron schedules).'
+              : 'Inngest keys not set — runs use a local background thread instead.'}{' '}
+            Live suites need API keys, MCP, and database.
           </CardDescription>
         </CardHeader>
         <CardContent className="grid gap-3 p-4 sm:grid-cols-2 xl:grid-cols-4">

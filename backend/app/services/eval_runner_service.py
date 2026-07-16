@@ -1,4 +1,4 @@
-"""Background eval job runner for Admin UI."""
+"""Background eval job runner for Admin UI + Inngest."""
 
 from __future__ import annotations
 
@@ -41,6 +41,28 @@ METRIC_COUNTS: dict[EvalSuiteKey, int] = {
     "multi_turn": 5,
 }
 
+# Daily schedules shown in Admin UI (Asia/Kolkata)
+SCHEDULES: dict[EvalSuiteKey, dict[str, str]] = {
+    "ci": {"cron": "0 12 * * *", "label": "Every day at 12:00 IST", "timezone": "Asia/Kolkata"},
+    "single_turn": {
+        "cron": "0 18 * * *",
+        "label": "Every day at 18:00 IST",
+        "timezone": "Asia/Kolkata",
+    },
+    "multi_turn": {
+        "cron": "0 22 * * *",
+        "label": "Every day at 22:00 IST",
+        "timezone": "Asia/Kolkata",
+    },
+}
+
+EVENT_BY_SUITE: dict[EvalSuiteRequest, str] = {
+    "ci": "evals/ci.run",
+    "single_turn": "evals/single_turn.run",
+    "multi_turn": "evals/multi_turn.run",
+    "all": "evals/all.run",
+}
+
 _lock = threading.Lock()
 _active_job_id: str | None = None
 
@@ -81,16 +103,21 @@ def eval_deps_installed() -> bool:
 
 
 def get_capabilities() -> dict[str, Any]:
+    from app.inngest_client import inngest_configured
+
     return {
         "eval_deps_installed": eval_deps_installed(),
         "deepeval_available": _module_available("deepeval"),
         "pytest_available": _module_available("pytest"),
+        "inngest_configured": inngest_configured(),
         "active_job_id": _active_job_id,
+        "schedules": SCHEDULES,
         "suites": {
             key: {
                 "label": SUITE_LABELS[key],
                 "metric_count": METRIC_COUNTS[key],
                 "requires_live": key != "ci",
+                "schedule": SCHEDULES[key],
             }
             for key in SUITE_ORDER
         },
@@ -129,13 +156,13 @@ def list_recent_jobs(limit: int = 10) -> list[dict[str, Any]]:
     return jobs
 
 
-def start_eval_job(suite: EvalSuiteRequest = "all") -> dict[str, Any]:
+def _create_job_record(
+    suite: EvalSuiteRequest,
+    *,
+    source: str = "local",
+    external_id: str | None = None,
+) -> dict[str, Any]:
     global _active_job_id
-
-    if not eval_deps_installed():
-        raise RuntimeError(
-            "Eval dependencies not installed. Run: pip install -r requirements-dev.txt"
-        )
 
     with _lock:
         if _active_job_id:
@@ -143,7 +170,7 @@ def start_eval_job(suite: EvalSuiteRequest = "all") -> dict[str, Any]:
             if existing and existing.get("status") in {"queued", "running"}:
                 raise RuntimeError(f"Eval job {_active_job_id} is already running.")
 
-        job_id = uuid.uuid4().hex[:12]
+        job_id = (external_id or uuid.uuid4().hex)[:24]
         suites = _suites_for_request(suite)
         progress = _empty_progress()
         for key in SUITE_ORDER:
@@ -154,6 +181,7 @@ def start_eval_job(suite: EvalSuiteRequest = "all") -> dict[str, Any]:
             "job_id": job_id,
             "suite": suite,
             "status": "queued",
+            "source": source,
             "created_at": _utc_now(),
             "started_at": None,
             "finished_at": None,
@@ -163,15 +191,88 @@ def start_eval_job(suite: EvalSuiteRequest = "all") -> dict[str, Any]:
         }
         _write_job(job)
         _active_job_id = job_id
+        return job
 
-    thread = threading.Thread(target=_run_job, args=(job_id, suites), daemon=True)
+
+def start_eval_job(suite: EvalSuiteRequest = "all") -> dict[str, Any]:
+    """Start evals via Inngest when configured, otherwise a local background thread."""
+    if not eval_deps_installed():
+        raise RuntimeError(
+            "Eval dependencies not installed. Run: pip install -r requirements-evals.txt"
+        )
+
+    from app.inngest_client import inngest_configured
+
+    if inngest_configured():
+        return trigger_eval_via_inngest(suite)
+
+    job = _create_job_record(suite, source="local")
+    suites = _suites_for_request(suite)
+    thread = threading.Thread(target=_run_job, args=(job["job_id"], suites), daemon=True)
     thread.start()
 
     return {
-        "job_id": job_id,
+        "job_id": job["job_id"],
         "suite": suite,
         "status": "queued",
-        "message": f"Started eval job for {suite}. Poll /admin/evals/jobs/{job_id} for progress.",
+        "message": (
+            f"Started local eval job for {suite}. "
+            f"Poll /admin/evals/jobs/{job['job_id']} for progress."
+        ),
+    }
+
+
+def trigger_eval_via_inngest(suite: EvalSuiteRequest = "all") -> dict[str, Any]:
+    """Send an Inngest event so Cloud/Dev Server executes the matching function."""
+    import inngest
+
+    from app.inngest_client import inngest_client
+
+    event_name = EVENT_BY_SUITE[suite]
+    result = inngest_client.send_sync(
+        inngest.Event(
+            name=event_name,
+            data={"suite": suite, "triggered_by": "admin"},
+        )
+    )
+    ids = getattr(result, "ids", None) or []
+    if getattr(result, "error", None):
+        raise RuntimeError(f"Inngest send failed: {result.error}")
+    event_id = ids[0] if ids else "queued"
+    return {
+        "job_id": str(event_id)[:24],
+        "suite": suite,
+        "status": "queued",
+        "message": (
+            f"Queued via Inngest ({event_name}). "
+            "Track progress in the Inngest dashboard and refresh results here when done."
+        ),
+    }
+
+
+def execute_eval_job_blocking(
+    suite: EvalSuiteRequest,
+    *,
+    source: str = "inngest",
+    external_id: str | None = None,
+) -> dict[str, Any]:
+    """Run evals synchronously (used inside Inngest step.run). Returns final job dict."""
+    if not eval_deps_installed():
+        raise RuntimeError(
+            "Eval dependencies not installed. Install requirements-evals.txt on this server."
+        )
+
+    job = _create_job_record(suite, source=source, external_id=external_id)
+    suites = _suites_for_request(suite)
+    _run_job(job["job_id"], suites)
+    final = _read_job(job["job_id"]) or job
+    return {
+        "job_id": final.get("job_id"),
+        "suite": final.get("suite"),
+        "status": final.get("status"),
+        "progress": final.get("progress"),
+        "error": final.get("error"),
+        "finished_at": final.get("finished_at"),
     }
 
 
@@ -263,10 +364,14 @@ def _run_job(job_id: str, suites: list[EvalSuiteKey]) -> None:
 
 
 def get_results_payload() -> dict[str, Any]:
+    from app.inngest_client import inngest_configured
+
     raw = load_all_latest_results()
     payload: dict[str, Any] = {
         "eval_deps_installed": eval_deps_installed(),
+        "inngest_configured": inngest_configured(),
         "active_job_id": get_active_job_id(),
+        "schedules": SCHEDULES,
     }
     for key in SUITE_ORDER:
         data = raw.get(key)

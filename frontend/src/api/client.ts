@@ -34,10 +34,14 @@ async function request<T>(path: string, init?: RequestInit, timeoutMs = 60_000):
   const controller = new AbortController()
   const timeout = setTimeout(() => controller.abort(), timeoutMs)
   try {
+    // Spread init first, then force headers so Content-Type is never overwritten.
     const response = await fetch(`${API_BASE}${path}`, {
-      headers: { 'Content-Type': 'application/json', ...(init?.headers ?? {}) },
-      signal: controller.signal,
       ...init,
+      signal: controller.signal,
+      headers: {
+        'Content-Type': 'application/json',
+        ...(init?.headers ?? {}),
+      },
     })
     if (!response.ok) {
       const text = await response.text()

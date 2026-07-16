@@ -38,6 +38,27 @@ Do **not** use `requirements-dev.txt` on Render for that optional step — it re
 
 On startup the API automatically warms MCP tools (Tavily, **AviationStack**, Weather). You do **not** need a third terminal for AviationStack.
 
+### Inngest (scheduled + manual evals)
+
+Endpoint: `https://<your-backend>/api/inngest`
+
+| Env var | Where | Purpose |
+|---------|--------|---------|
+| `INNGEST_EVENT_KEY` | Render + local Cloud | Send events (manual Admin trigger) |
+| `INNGEST_SIGNING_KEY` | Render + local Cloud | Secure sync with Inngest Cloud |
+| `INNGEST_DEV=1` | Local only | Talk to Inngest Dev Server — **never set on Render** |
+
+Daily crons (Asia/Kolkata):
+
+| Suite | Time | Trigger event (manual) |
+|-------|------|------------------------|
+| CI (3) | 12:00 | `evals/ci.run` |
+| Single-turn (5) | 18:00 | `evals/single_turn.run` |
+| Multi-turn (5) | 22:00 | `evals/multi_turn.run` |
+| All 13 | — | `evals/all.run` (manual only) |
+
+After deploy: add the app URL in Inngest Cloud → sync `https://northline-y6rd.onrender.com/api/inngest`.
+
 **One-time AviationStack MCP setup** (inside backend):
 
 ```powershell

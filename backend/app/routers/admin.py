@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Body, Depends, HTTPException
 
 from app.dependencies import get_lesson_book, get_memory_manager, require_admin
 from app.schemas.admin import (
@@ -109,17 +109,22 @@ def eval_results() -> EvalResultsResponse:
         single_turn=_optional_suite_results(payload.get("single_turn")),
         multi_turn=_optional_suite_results(payload.get("multi_turn")),
         eval_deps_installed=payload.get("eval_deps_installed", False),
+        inngest_configured=payload.get("inngest_configured", False),
         active_job_id=payload.get("active_job_id"),
+        schedules=payload.get("schedules") or {},
     )
 
 
 @router.post("/evals/run", response_model=EvalRunStartResponse)
-def eval_run(payload: EvalRunRequest) -> EvalRunStartResponse:
+def eval_run(payload: EvalRunRequest = Body(default_factory=EvalRunRequest)) -> EvalRunStartResponse:
+    """Manual trigger. Uses Inngest when configured; otherwise a local background thread."""
     try:
         result = start_eval_job(payload.suite)
         return EvalRunStartResponse(**result)
     except RuntimeError as exc:
         raise HTTPException(409, str(exc)) from exc
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(500, f"Failed to queue eval run: {exc}") from exc
 
 
 @router.get("/evals/jobs", response_model=list[EvalJobResponse])
