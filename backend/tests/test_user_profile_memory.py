@@ -19,6 +19,8 @@ from memory.preference_parser import (
     answer_food_preference,
     answer_preference_query,
     answer_what_food,
+    is_valid_preference_value,
+    looks_like_preference_query,
     parse_preference,
 )
 from memory.profile_store import (
@@ -290,6 +292,37 @@ async def test_chat_service_preference_query_without_plan():
     assert "non-vegetarian" in result["message"]
 
 
-def test_is_preference_query_patterns():
-    assert is_preference_query("What is my dietary preference?")
-    assert not is_preference_query("Plan a 5-day trip to Bali")
+def test_what_i_like_in_food_is_query_not_statement():
+    assert looks_like_preference_query("what i like in food?")
+    assert parse_preference("what i like in food?") is None
+    intent = classify_message("what i like in food?", has_previous_plan=True)
+    assert intent == MessageIntent.PREFERENCE_QUERY
+
+
+def test_invalid_in_food_not_saved():
+    assert parse_preference("what i like in food?") is None
+    assert not is_valid_preference_value("in food", "food_preference")
+    result = upsert_and_describe("rahul", "food_preference", "in food")
+    assert result is None
+
+
+def test_am_i_vegetarian_query():
+    intent = classify_message("i m vegeterian or non vegeterian?", has_previous_plan=True)
+    assert intent == MessageIntent.PREFERENCE_QUERY
+
+    profile = {"food_preference": "vegetarian"}
+    reply = answer_preference_query(profile, "i m vegeterian or non vegeterian?")
+    assert reply and "vegetarian" in reply
+
+
+def test_food_preference_typo_query():
+    assert looks_like_preference_query("what is my food preernce?")
+    profile = {"food_preference": "vegetarian"}
+    reply = answer_preference_query(profile, "what is my food preernce?")
+    assert reply and "vegetarian" in reply
+
+
+def test_corrupted_profile_value_ignored():
+    profile = {"food_preference": "in food"}
+    reply = answer_preference_query(profile, "what is my food preference?")
+    assert reply is None

@@ -36,6 +36,29 @@ TRIP_HINT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+QUESTION_START = re.compile(
+    r"^(?:what|which|who|where|when|how|do|does|did|can|could|would|should|is|are|am|tell me)\b",
+    re.IGNORECASE,
+)
+
+INVALID_VALUE_TOKENS = frozenset(
+    {
+        "food",
+        "sport",
+        "sports",
+        "preference",
+        "prefrence",
+        "preernce",
+        "prefereance",
+        "in food",
+        "the food",
+        "a food",
+        "my food",
+        "in sport",
+        "the sport",
+    }
+)
+
 
 @dataclass(frozen=True)
 class ParsedPreference:
@@ -77,8 +100,53 @@ def _extract_dietary_term(text: str) -> str | None:
     return _normalize_food(match.group(0))
 
 
+def _is_question(text: str) -> bool:
+    normalized = " ".join((text or "").strip().lower().split())
+    if not normalized:
+        return False
+    if normalized.endswith("?"):
+        return True
+    if QUESTION_START.search(normalized):
+        return True
+    if re.search(r"\bwhat\b.*\b(?:do|did|would|should)\s+i\b", normalized):
+        return True
+    if re.search(r"\bwhat\s+i\s+like\b", normalized):
+        return True
+    if re.search(r"\b(?:am|are)\s+i\b", normalized):
+        return True
+    return False
+
+
+def is_valid_preference_value(value: str, attribute_key: str = "") -> bool:
+    cleaned = _clean_value(value).lower()
+    if not cleaned or len(cleaned) < 2:
+        return False
+    if cleaned in INVALID_VALUE_TOKENS:
+        return False
+    if re.match(r"^(?:in|at|the|a|an|to|for|with|my|your|on)\s+", cleaned):
+        if _normalize_food(cleaned) is None and _extract_dietary_term(cleaned) is None:
+            return False
+    topic = attribute_key.replace("_preference", "").replace("favorite_", "")
+    if topic and cleaned == topic.replace("_", " "):
+        return False
+    if cleaned in {"food", "sport", "sports", "meal", "meals", "diet", "dietary"}:
+        return False
+    return True
+
+
 def _is_trip_related(text: str) -> bool:
     return bool(TRIP_HINT_PATTERN.search(text))
+
+
+def _finalize_preference(key: str, value: str) -> ParsedPreference | None:
+    cleaned = _clean_value(value)
+    food = _normalize_food(cleaned) or _extract_dietary_term(cleaned)
+    if food:
+        cleaned = food
+        key = "food_preference"
+    if not is_valid_preference_value(cleaned, key):
+        return None
+    return ParsedPreference(key, cleaned)
 
 
 def _parse_dietary_statement(text: str) -> ParsedPreference | None:
@@ -130,12 +198,12 @@ def _infer_key_from_statement(text: str, value: str) -> str:
 def parse_preference_statement(text: str) -> ParsedPreference | None:
     """Extract a profile attribute from a preference statement."""
     raw = (text or "").strip()
-    if not raw or _is_trip_related(raw):
+    if not raw or _is_trip_related(raw) or _is_question(raw):
         return None
 
     dietary = _parse_dietary_statement(raw)
     if dietary:
-        return dietary
+        return _finalize_preference(dietary.attribute_key, dietary.attribute_value)
 
     normalized = " ".join(raw.lower().split())
 
@@ -171,17 +239,22 @@ def parse_preference_statement(text: str) -> ParsedPreference | None:
             value = _clean_value(match.group("value"))
             if not value:
                 continue
-            return ParsedPreference(preference_key_for_category(category), value)
+            result = _finalize_preference(preference_key_for_category(category), value)
+            if result:
+                return result
+            continue
         value = _clean_value(match.group("value"))
         if not value or len(value.split()) > 12:
             continue
         if kind == "play":
-            return ParsedPreference("favorite_sport", value)
+            result = _finalize_preference("favorite_sport", value)
+            if result:
+                return result
+            continue
         key = _infer_key_from_statement(normalized, value)
-        food = _normalize_food(value)
-        if food:
-            return ParsedPreference("food_preference", food)
-        return ParsedPreference(key, value)
+        result = _finalize_preference(key, value)
+        if result:
+            return result
 
     return None
 
@@ -194,16 +267,16 @@ def parse_preference(text: str) -> ParsedPreference | None:
 
 def looks_like_preference_statement(text: str) -> bool:
     raw = (text or "").strip()
-    if not raw or _is_trip_related(raw):
+    if not raw or _is_trip_related(raw) or _is_question(raw):
         return False
     if parse_preference(raw):
         return True
     normalized = raw.lower()
     patterns = [
         r"\bmy favorite\b",
-        r"\b(?:i\s+)?(?:like|love|prefer|enjoy)\b",
+        r"\b(?:i\s+)?(?:like|love|prefer|enjoy)\s+(?!to ask\b)",
         r"\b(?:i\s+)?(?:want|wish|would like)\s+to\s+(?:play|do|try)\b",
-        r"\b(?:i\s+)?(?:am|i'm)\s+(?:a|an)\b",
+        r"\b(?:i\s+)?(?:am|i'm|i m)\s+(?:a|an)\s+(?:vegetarian|vegan|halal|non)",
         r"\bremember that\b",
     ]
     return any(re.search(pattern, normalized) for pattern in patterns)
@@ -217,11 +290,15 @@ def looks_like_preference_query(text: str) -> bool:
         return False
     patterns = [
         r"\bwhat(?:'s| is| are)\s+my\b",
+        r"\bwhat\s+i\s+like\b",
+        r"\bwhat\b.*\b(?:like|prefer|eat|play)\b.*\b(?:food|sport|sports|diet|dietary)\b",
         r"\bwhat\s+.+\s+(?:do\s+)?i\s+(?:like|prefer|enjoy|play)\b",
-        r"\bmy\s+.+\s+(?:pref(?:erence|rence)|prefrence)\b",
+        r"\bmy\s+.+\s+(?:pref(?:erence|rence)|prefrence|preernce)\b",
+        r"\bwhat\s+is\s+my\s+\w+\s+(?:pref(?:erence|rence)|prefrence|preernce)\b",
         r"\bdo i\s+(?:like|prefer|enjoy|play)\b",
-        r"\bam i\s+(?:a|an)\b",
-        r"\bam i\s+(?:vegetarian|vegan|halal|non[-\s]?vegetarian|vegeterian)\b",
+        r"\b(?:am|are)\s+i\s+(?:a|an)\b",
+        r"\b(?:i'm|i m|i am)\s+(?:a\s+)?(?:vegetarian|vegeterian|vegan|halal|non[-\s]?vegetarian|non[-\s]?veg)\b",
+        r"\b(?:vegetarian|vegeterian|vegan|non[-\s]?veg).*\bor\b.*(?:vegetarian|vegeterian|non[-\s]?veg)",
         r"\bwhat\s+(?:food|sport|sports|diet|dietary|color|colour|hobby|hobbies)\b",
     ]
     return any(re.search(pattern, normalized) for pattern in patterns)
@@ -258,9 +335,28 @@ def parse_preference_query(text: str) -> PreferenceQuery:
             category_hint=category,
         )
 
-    match = re.search(r"\bmy\s+(?P<category>[a-z][a-z\s]{1,24}?)\s+(?:pref(?:erence|rence)|prefrence)\b", normalized)
+    match = re.search(r"\bmy\s+(?P<category>[a-z][a-z\s]{1,24}?)\s+(?:pref(?:erence|rence)|prefrence|preernce)\b", normalized)
     if match:
         category = match.group("category").strip()
+        return PreferenceQuery(
+            attribute_key=preference_key_for_category(category),
+            category_hint=category,
+        )
+
+    match = re.search(
+        r"\bwhat\s+is\s+my\s+(?P<category>food|diet|dietary|sport|sports)\s+(?:pref(?:erence|rence)|prefrence|preernce)\b",
+        normalized,
+    )
+    if match:
+        category = match.group("category")
+        return PreferenceQuery(
+            attribute_key=preference_key_for_category(category),
+            category_hint=category,
+        )
+
+    match = re.search(r"\bwhat\s+i\s+like\s+(?:in\s+)?(?P<category>food|sport|sports|diet|dietary)\b", normalized)
+    if match:
+        category = match.group("category")
         return PreferenceQuery(
             attribute_key=preference_key_for_category(category),
             category_hint=category,
@@ -312,30 +408,57 @@ def resolve_profile_key(query: PreferenceQuery, profile: dict[str, str]) -> str 
     return query.attribute_key
 
 
+def _effective_profile_value(profile: dict[str, str], key: str) -> str | None:
+    value = profile.get(key)
+    if not value:
+        return None
+    if not is_valid_preference_value(value, key):
+        return None
+    return value
+
+
 def answer_preference_query(profile: dict[str, str], query_text: str) -> str | None:
     """Deterministic answer from structured profile."""
     if not profile:
         return None
 
+    normalized = " ".join((query_text or "").strip().lower().split())
+    if re.search(r"\b(?:am|are|i'm|i m)\b.*(?:vegetarian|vegan|halal|non[-\s]?veg)", normalized):
+        food = _effective_profile_value(profile, "food_preference")
+        if food:
+            if food == "non-vegetarian":
+                return "You are **non-vegetarian** based on your saved profile."
+            return f"You are **{food}** based on your saved profile."
+        return None
+
     parsed_query = parse_preference_query(query_text)
     key = resolve_profile_key(parsed_query, profile)
 
-    if key and key in profile:
-        label = format_attribute_label(key)
-        value = profile[key]
-        return f"Your {label.lower()} is **{value}**."
+    if key:
+        value = _effective_profile_value(profile, key)
+        if value:
+            label = format_attribute_label(key)
+            if key == "food_preference":
+                return f"You like **{value}** food."
+            return f"Your {label.lower()} is **{value}**."
+
+    valid_entries = {
+        k: v for k, v in profile.items() if is_valid_preference_value(v, k)
+    }
+    if not valid_entries:
+        return None
 
     if parsed_query.attribute_key is None and not parsed_query.category_hint:
-        if len(profile) == 1:
-            only_key = next(iter(profile))
+        if len(valid_entries) == 1:
+            only_key = next(iter(valid_entries))
             label = format_attribute_label(only_key)
-            return f"Your {label.lower()} is **{profile[only_key]}**."
+            return f"Your {label.lower()} is **{valid_entries[only_key]}**."
 
     if not parsed_query.attribute_key and not parsed_query.category_hint:
         lines = ["Here's what I have saved in your profile:"]
-        for attr_key in sorted(profile):
+        for attr_key in sorted(valid_entries):
             label = format_attribute_label(attr_key)
-            lines.append(f"- **{label}**: {profile[attr_key]}")
+            lines.append(f"- **{label}**: {valid_entries[attr_key]}")
         return "\n".join(lines)
 
     return None

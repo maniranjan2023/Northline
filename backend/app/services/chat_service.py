@@ -91,10 +91,26 @@ async def handle_chat_message(
             "run_id": str(run_id),
         }
 
-    if guardrails_enabled():
-        from guardrails.pipeline import check_input
+    has_plan = await asyncio.to_thread(user_has_stored_plan, safe_user, thread_id)
+    intent = classify_message(text, has_plan)
 
-        guard = check_input(text)
+    if guardrails_enabled():
+        from guardrails.patterns import check_regex_safety
+        from guardrails.pipeline import GuardrailResult, check_input
+
+        if intent in (
+            MessageIntent.PREFERENCE_QUERY,
+            MessageIntent.PREFERENCE_STATEMENT,
+            MessageIntent.PREFERENCE_CORRECTION,
+        ):
+            blocked, response, reason = check_regex_safety(text)
+            guard = (
+                GuardrailResult(blocked=True, response=response, intent=reason)
+                if blocked
+                else GuardrailResult(blocked=False, response="", intent="Allowed")
+            )
+        else:
+            guard = check_input(text)
         if guard.blocked:
             return {
                 "intent": "blocked",
@@ -103,9 +119,6 @@ async def handle_chat_message(
                 "guardrail_reason": guard.intent,
                 "run_id": str(run_id),
             }
-
-    has_plan = await asyncio.to_thread(user_has_stored_plan, safe_user, thread_id)
-    intent = classify_message(text, has_plan)
 
     if intent == MessageIntent.GREETING:
         reply = build_greeting_reply(safe_user)
@@ -168,6 +181,26 @@ async def handle_chat_message(
         }
 
     if intent == MessageIntent.FOLLOW_UP:
+        from memory.preference_parser import looks_like_preference_query
+
+        if looks_like_preference_query(text):
+            intent = MessageIntent.PREFERENCE_QUERY
+            from memory.profile_store import get_profile
+
+            profile = await asyncio.to_thread(get_profile, safe_user)
+            reply = answer_preference_query(profile, text)
+            if not reply:
+                query = parse_preference_query(text)
+                topic = query.category_hint or "that preference"
+                reply = build_no_preference_reply(safe_user, topic=topic)
+            return {
+                "intent": "preference_query",
+                "message": reply,
+                "message_type": "text",
+                "run_id": str(run_id),
+                "user_query": text,
+            }
+
         if not has_plan:
             return {
                 "intent": "follow_up",

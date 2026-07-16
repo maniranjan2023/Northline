@@ -75,6 +75,11 @@ def upsert_and_describe(
     if not clean_user or not clean_key or not clean_value:
         return None
 
+    from memory.preference_parser import is_valid_preference_value
+
+    if not is_valid_preference_value(clean_value, clean_key):
+        return None
+
     previous = get_profile(clean_user).get(clean_key)
     if previous == clean_value:
         return None
