@@ -22,10 +22,11 @@ from chat_router import (
     classify_message,
     is_explicit_correction,
 )
+from memory.preference_keys import format_attribute_label
 from memory.preference_parser import (
-    answer_food_preference,
-    answer_what_food,
+    answer_preference_query,
     parse_preference,
+    parse_preference_query,
 )
 from memory.profile_store import upsert_and_describe
 from guardrails.flags import guardrails_enabled
@@ -111,7 +112,7 @@ async def handle_chat_message(
         return {"intent": "greeting", "message": reply, "message_type": "text", "run_id": str(run_id)}
 
     if intent in (MessageIntent.PREFERENCE_STATEMENT, MessageIntent.PREFERENCE_CORRECTION):
-        parsed = parse_preference(text)
+        parsed = await memory_manager.parse_user_preference(text)
         memory_update = None
         if parsed:
             memory_update = await asyncio.to_thread(
@@ -120,14 +121,15 @@ async def handle_chat_message(
                 parsed.attribute_key,
                 parsed.attribute_value,
             )
+            label = format_attribute_label(parsed.attribute_key)
             if intent == MessageIntent.PREFERENCE_CORRECTION:
-                reply = build_preference_updated(safe_user, parsed.attribute_value)
+                reply = build_preference_updated(safe_user, label, parsed.attribute_value)
             else:
-                reply = build_preference_ack(safe_user, parsed.attribute_value)
+                reply = build_preference_ack(safe_user, label, parsed.attribute_value)
         else:
             reply = (
-                f"I heard a preference update, **{safe_user}**, but couldn't tell which one. "
-                "Try: *\"I like vegetarian\"* or *\"Please correct, I like non-vegetarian\"*."
+                f"I heard a preference, **{safe_user}**, but couldn't tell what to save. "
+                "Try: *\"My favorite sport is cricket\"* or *\"I like vegetarian\"*."
             )
         response = {
             "intent": intent.value,
@@ -144,9 +146,11 @@ async def handle_chat_message(
         from memory.profile_store import get_profile
 
         profile = await asyncio.to_thread(get_profile, safe_user)
-        reply = answer_what_food(profile) or answer_food_preference(profile)
+        reply = answer_preference_query(profile, text)
         if not reply:
-            reply = build_no_preference_reply(safe_user)
+            query = parse_preference_query(text)
+            topic = query.category_hint or "that preference"
+            reply = build_no_preference_reply(safe_user, topic=topic)
         return {
             "intent": "preference_query",
             "message": reply,

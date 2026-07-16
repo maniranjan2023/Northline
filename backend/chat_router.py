@@ -14,6 +14,12 @@ from __future__ import annotations
 import re
 from enum import Enum
 
+from memory.preference_parser import (
+    looks_like_preference_query,
+    looks_like_preference_statement,
+    parse_preference,
+)
+
 
 class MessageIntent(str, Enum):
     GREETING = "greeting"
@@ -68,25 +74,11 @@ CORRECTION_PATTERNS = [
     r"\bdo not suggest\b",
 ]
 
-PREFERENCE_STATEMENT_PATTERNS = [
-    r"\b(?:i\s+)?(?:like|am|prefer|want|need|eat)\s+(?:to\s+be\s+)?(?:a\s+)?(?:vegetarian|vegan|halal|non[-\s]?vegetarian|non[-\s]?veg)\b",
-    r"\b(?:i\s+)?(?:am|i'm)\s+a\s+(?:vegetarian|vegan|halal|non[-\s]?vegetarian)\b",
-]
-
 PREFERENCE_CORRECTION_PATTERNS = [
     r"\bplease\s+correct\b",
     r"\bcorrect\s+that\b",
     r"\bi\s+meant\b",
-    r"\bnot\s+(?:vegetarian|vegan|halal)\b.*\b(?:but|i\s+(?:like|am|prefer))\b",
-    r"\b(?:actually|correction)\b.*\b(?:vegetarian|vegan|halal|non[-\s]?vegetarian|non[-\s]?veg)\b",
-]
-
-PREFERENCE_QUERY_PATTERNS = [
-    r"\bwhat\s+(?:food|diet|dietary)\s+(?:do\s+)?i\s+(?:like|prefer|eat)\b",
-    r"\bam\s+i\s+(?:a\s+)?(?:vegetarian|vegan|halal|non[-\s]?vegetarian)\b",
-    r"\bmy\s+(?:food|dietary|diet)\s+preference\b",
-    r"\bwhat\s+(?:is|are)\s+my\s+(?:food|dietary|diet)\s+preference\b",
-    r"\bdo\s+i\s+(?:like|prefer|eat)\s+(?:vegetarian|vegan|halal|non[-\s]?vegetarian)\b",
+    r"\b(?:actually|correction)\b.*\b(?:like|prefer|want|play|favorite|favourite)\b",
 ]
 
 
@@ -102,21 +94,49 @@ def is_preference_statement(text: str) -> bool:
     normalized = (text or "").strip().lower()
     if is_preference_correction(normalized) or is_preference_query(normalized):
         return False
-    return any(re.search(pattern, normalized) for pattern in PREFERENCE_STATEMENT_PATTERNS)
+    return looks_like_preference_statement(normalized)
 
 
 def is_preference_correction(text: str) -> bool:
     normalized = (text or "").strip().lower()
-    return any(re.search(pattern, normalized) for pattern in PREFERENCE_CORRECTION_PATTERNS)
+    if any(re.search(pattern, normalized) for pattern in PREFERENCE_CORRECTION_PATTERNS):
+        return True
+    return bool(re.search(r"\bnot\s+.+\s+but\b", normalized) and looks_like_preference_statement(normalized))
 
 
 def is_preference_query(text: str) -> bool:
+    return looks_like_preference_query(text)
+
+
+def is_pure_greeting(text: str) -> bool:
+    """True only for short hello/hi messages — not 'hey, I like vegetarian'."""
     normalized = (text or "").strip().lower()
-    return any(re.search(pattern, normalized) for pattern in PREFERENCE_QUERY_PATTERNS)
+    if not normalized:
+        return True
+    if (
+        is_preference_query(normalized)
+        or is_preference_correction(normalized)
+        or is_preference_statement(normalized)
+        or parse_preference(normalized)
+    ):
+        return False
+    for pattern in GREETING_PATTERNS:
+        if re.search(pattern, normalized):
+            rest = re.sub(pattern, "", normalized, count=1).strip(" ,!.?")
+            if not rest:
+                return True
+            if rest in {"there", "you", "ya", "u"}:
+                return True
+            return False
+    if normalized in {"how are you", "how are you doing", "what can you do"}:
+        return True
+    return False
 
 
 def is_retrospective_question(text: str) -> bool:
     """True when the user is asking about a plan that may already exist."""
+    if is_preference_query(text):
+        return False
     for pattern in FOLLOW_UP_PATTERNS:
         if re.search(pattern, text):
             return True
@@ -138,10 +158,6 @@ def classify_message(user_query: str, has_previous_plan: bool) -> MessageIntent:
     if not text:
         return MessageIntent.GREETING
 
-    for pattern in GREETING_PATTERNS:
-        if re.search(pattern, text):
-            return MessageIntent.GREETING
-
     if is_preference_query(text):
         return MessageIntent.PREFERENCE_QUERY
 
@@ -151,7 +167,10 @@ def classify_message(user_query: str, has_previous_plan: bool) -> MessageIntent:
     if is_preference_statement(text):
         return MessageIntent.PREFERENCE_STATEMENT
 
-    # Always detect recall questions first — even with no plan in this session.
+    if is_pure_greeting(text):
+        return MessageIntent.GREETING
+
+    # Always detect recall questions — even with no plan in this session.
     if is_retrospective_question(text):
         return MessageIntent.FOLLOW_UP
 
@@ -212,21 +231,21 @@ def build_clarify_reply(username: str) -> str:
     )
 
 
-def build_preference_ack(username: str, attribute_value: str) -> str:
+def build_preference_ack(username: str, attribute_label: str, attribute_value: str) -> str:
     return (
-        f"Got it, **{username}**! I've saved your food preference as **{attribute_value}**. "
-        "I'll use this when planning your trips."
+        f"Got it, **{username}**! I've saved your **{attribute_label.lower()}** as **{attribute_value}**. "
+        "I'll remember this for future trips and questions."
     )
 
 
-def build_preference_updated(username: str, attribute_value: str) -> str:
+def build_preference_updated(username: str, attribute_label: str, attribute_value: str) -> str:
     return (
-        f"Updated, **{username}**! Your latest food preference is **{attribute_value}**."
+        f"Updated, **{username}**! Your latest **{attribute_label.lower()}** is **{attribute_value}**."
     )
 
 
-def build_no_preference_reply(username: str) -> str:
+def build_no_preference_reply(username: str, *, topic: str = "that preference") -> str:
     return (
-        f"I don't have a saved food preference for you yet, **{username}**. "
-        "Tell me something like *\"I like vegetarian\"* and I'll remember it."
+        f"I don't have **{topic}** saved for you yet, **{username}**. "
+        "Tell me something like *\"My favorite sport is cricket\"* or *\"I like vegetarian\"* and I'll remember it."
     )

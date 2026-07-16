@@ -142,6 +142,16 @@ class MemoryManager:
             planner_output=conversation.get("planner_output", ""),
         )
 
+    async def parse_user_preference(self, text: str):
+        """Parse a durable preference from user text (regex first, LLM fallback)."""
+        from memory.preference_llm import extract_preference_llm
+        from memory.preference_parser import parse_preference
+
+        parsed = parse_preference(text)
+        if parsed:
+            return parsed
+        return await extract_preference_llm(self._extractor._llm, text)
+
     async def save_explicit_correction(self, user_id: str, correction_text: str) -> int:
         """Persist a user-stated correction immediately for future trips."""
         clean_text = " ".join((correction_text or "").split())
