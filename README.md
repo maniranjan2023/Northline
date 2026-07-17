@@ -6,6 +6,22 @@
 
 ---
 
+## Architecture Diagrams
+
+### 1. Core System Architecture
+
+**What this diagram shows:** End-to-end Northline stack — React chat UI → FastAPI → Guardrails + intent router → LangGraph multi-agent pipeline (planner → research → hotel → flight → activity → itinerary) → three memory layers (PostgresSaver / Mem0 / `user_profile`) → MCP tools (Tavily, AviationStack, Weather) → LangSmith. Also covers the main user journeys: **new plan**, **follow-up**, **preference save**, and **preference query**.
+
+![Northline Core System Architecture — UI, FastAPI, Guardrails, LangGraph agents, memory stores, and MCP tools](docs/prompt1.png)
+
+### 2. Memory, MCP, Learning & Ops Deep Dive
+
+**What this diagram shows:** Deep dive into how memory is written and read (PostgresSaver short-term trip state, Mem0 long-term semantic facts, structured `user_profile` preferences), how specialist agents call MCP tools, and how the Lesson Book + thumbs feedback + Admin/evals loop improve future trips — including preference correction and cross-trip personalization flows.
+
+![Northline Memory, MCP Tools, Lesson Book, Feedback Loop, and Advanced User Flows](docs/prompt2.png)
+
+---
+
 ## At a Glance — What Makes This Project Stand Out
 
 
@@ -27,25 +43,26 @@
 
 ## Table of Contents
 
-1. [What This Project Does](#what-this-project-does)
-2. [High-Level Architecture](#high-level-architecture)
-3. [Features (Detailed)](#features-detailed)
-4. [User Flow](#user-flow)
-5. [Memory System](#memory-system)
-6. [Safety (Guardrails)](#safety-guardrails)
-7. [Observability (LangSmith)](#observability-langsmith)
-8. [MCP Integration (Remote, Local, Custom)](#mcp-integration-remote-local-custom)
-9. [LangGraph Agent Pipeline](#langgraph-agent-pipeline)
-10. [Project Structure](#project-structure)
-11. [Setup Guide](#setup-guide)
-12. [How to Run](#how-to-run)
-13. [Environment Variables](#environment-variables)
-14. [Example Prompts](#example-prompts)
-15. [Evaluations](#evaluations)
-16. [Self-Improvement Loop](#self-improvement-loop)
-17. [Troubleshooting](#troubleshooting)
-18. [Interview Quick Reference](#interview-quick-reference)
-19. [Master Feature Guide](#master-feature-guide)
+1. [Architecture Diagrams](#architecture-diagrams)
+2. [What This Project Does](#what-this-project-does)
+3. [High-Level Architecture](#high-level-architecture)
+4. [Features (Detailed)](#features-detailed)
+5. [User Flow](#user-flow)
+6. [Memory System](#memory-system)
+7. [Safety (Guardrails)](#safety-guardrails)
+8. [Observability (LangSmith)](#observability-langsmith)
+9. [MCP Integration (Remote, Local, Custom)](#mcp-integration-remote-local-custom)
+10. [LangGraph Agent Pipeline](#langgraph-agent-pipeline)
+11. [Project Structure](#project-structure)
+12. [Setup Guide](#setup-guide)
+13. [How to Run](#how-to-run)
+14. [Environment Variables](#environment-variables)
+15. [Example Prompts](#example-prompts)
+16. [Evaluations](#evaluations)
+17. [Self-Improvement Loop](#self-improvement-loop)
+18. [Troubleshooting](#troubleshooting)
+19. [Interview Quick Reference](#interview-quick-reference)
+20. [Master Feature Guide](#master-feature-guide)
 
 ---
 
